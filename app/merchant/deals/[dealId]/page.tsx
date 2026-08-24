@@ -1,12 +1,13 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { and, eq } from 'drizzle-orm';
 import { env } from 'cloudflare:workers';
-import { deals, products, purchaseIntents, purchaseRequirements } from '@/db/schema';
-import { ensureDatabase, getDatabase } from '@/src/adapters/db/database';
-import { generateCorporateGiftingQuotes } from '@/src/domain/quoting/corporate-gifting-engine';
-import type { CatalogProduct, HardConstraint } from '@/src/domain/quoting/types';
+import { ensureDatabase } from '@/src/adapters/db/database';
+import {
+  loadDealQuotes,
+  loadDealQuoteWorkspace,
+} from '@/src/application/quote-workflow';
+import { ApproveQuoteButton } from './approve-quote-button';
 
 type DealPageProps = { params: Promise<{ dealId: string }> };
 
@@ -31,56 +32,14 @@ export async function generateMetadata({ params }: DealPageProps): Promise<Metad
 export default async function MerchantDealPage({ params }: DealPageProps) {
   const { dealId } = await params;
   await ensureDatabase(env.DB);
-  const db = getDatabase(env.DB);
-
-  const [deal] = await db
-    .select({
-      id: deals.id,
-      state: deals.state,
-      createdAt: deals.createdAt,
-      rawText: purchaseIntents.rawText,
-      constraintsJson: purchaseIntents.constraintsJson,
-      quantity: purchaseRequirements.quantity,
-      maxUnitPaise: purchaseRequirements.maxUnitPaise,
-      deliveryLocationsJson: purchaseRequirements.deliveryLocationsJson,
-      deadline: purchaseRequirements.deadline,
-    })
-    .from(deals)
-    .innerJoin(purchaseIntents, eq(deals.intentId, purchaseIntents.id))
-    .innerJoin(
-      purchaseRequirements,
-      eq(purchaseIntents.id, purchaseRequirements.intentId),
-    )
-    .where(eq(deals.id, dealId))
-    .limit(1);
-
-  if (!deal) notFound();
-
-  const catalogRows = await db
-    .select()
-    .from(products)
-    .where(and(eq(products.merchantId, 'merchant-good-batch'), eq(products.active, true)));
-
-  const catalog: CatalogProduct[] = catalogRows.map((product) => ({
-    id: product.id,
-    sku: product.sku,
-    name: product.name,
-    category: product.category,
-    tags: JSON.parse(product.tagsJson) as string[],
-    unitPricePaise: product.unitPricePaise,
-    unitCostPaise: product.unitCostPaise,
-    availableQuantity: product.availableQuantity,
-    leadTimeDays: product.leadTimeDays,
-  }));
-  const hardConstraints = JSON.parse(deal.constraintsJson) as HardConstraint[];
-  const deliveryLocations = JSON.parse(deal.deliveryLocationsJson) as string[];
-  const result = generateCorporateGiftingQuotes(catalog, {
-    quantity: deal.quantity,
-    maxUnitPaise: deal.maxUnitPaise,
-    deliveryLocations,
-    deadline: deal.deadline,
-    hardConstraints,
-  });
+  const workspace = await loadDealQuoteWorkspace(env.DB, dealId);
+  if (!workspace) notFound();
+  const { deal, result } = workspace;
+  const quoteHistory = await loadDealQuotes(env.DB, dealId);
+  const currentQuote = quoteHistory.find(
+    (quote) => quote.status === 'buyer_accepted' || quote.status === 'merchant_approved',
+  );
+  const buyerAccepted = currentQuote?.status === 'buyer_accepted';
 
   return (
     <main className="quote-workspace">
@@ -102,20 +61,25 @@ export default async function MerchantDealPage({ params }: DealPageProps) {
           <dl className="brief-facts">
             <div><dt>Quantity</dt><dd>{deal.quantity} kits</dd></div>
             <div><dt>Hard cap</dt><dd>{formatMoney(deal.maxUnitPaise)} / kit</dd></div>
-            <div><dt>Delivery</dt><dd>{deliveryLocations.join(' · ')}</dd></div>
+            <div><dt>Delivery</dt><dd>{deal.deliveryLocations.join(' · ')}</dd></div>
             <div><dt>Deadline</dt><dd>{deal.deadline}</dd></div>
           </dl>
 
           <div className="locked-list">
             <p>Locked by the buyer</p>
-            {hardConstraints.map((constraint) => (
+            {deal.hardConstraints.map((constraint) => (
               <span key={constraint}>✓ {constraint.replace('-', ' ')}</span>
             ))}
           </div>
 
           <div className="no-money-notice">
             <span aria-hidden="true">◇</span>
-            <p><strong>Preview only</strong>No order, approval or payment action has been created.</p>
+            <p>
+              <strong>{currentQuote ? `Quote v${currentQuote.version} is ${currentQuote.status.replaceAll('_', ' ')}` : 'Preview only'}</strong>
+              {currentQuote
+                ? 'The quote contract exists, but no order or payment action has been created.'
+                : 'No order, approval or payment action has been created.'}
+            </p>
           </div>
         </aside>
 
@@ -142,6 +106,17 @@ export default async function MerchantDealPage({ params }: DealPageProps) {
             </div>
           ) : (
             <>
+              {currentQuote ? (
+                <div className="issued-quote-banner">
+                  <div>
+                    <span>{buyerAccepted ? 'Buyer accepted' : 'Buyer action required'}</span>
+                    <p>Quote v{currentQuote.version} · {currentQuote.label} · fingerprint {currentQuote.quoteHash.slice(0, 12)}…</p>
+                  </div>
+                  <Link href={`/deal/${deal.publicToken}`}>
+                    {buyerAccepted ? 'View acceptance receipt →' : 'Open buyer Deal Room →'}
+                  </Link>
+                </div>
+              ) : null}
               <div className="quote-engine-note">
                 <span>{result.feasibleCombinations} feasible</span>
                 <p>Options are selected by explicit positions: lowest price, balanced use of budget, and richest kit under the cap.</p>
@@ -185,6 +160,18 @@ export default async function MerchantDealPage({ params }: DealPageProps) {
                           <span key={check.code}>✓ {check.code.replaceAll('_', ' ').toLowerCase()}</span>
                         ))}
                       </div>
+
+                      <ApproveQuoteButton
+                        dealId={deal.id}
+                        optionKey={option.key}
+                        isCurrent={
+                          currentQuote?.status === 'merchant_approved' &&
+                          currentQuote.optionKey === option.key &&
+                          currentQuote.unitTotalPaise === option.unitTotalPaise &&
+                          currentQuote.orderTotalPaise === option.orderTotalPaise
+                        }
+                        disabled={buyerAccepted}
+                      />
                     </div>
                   </article>
                 ))}

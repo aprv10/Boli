@@ -82,3 +82,64 @@ export const deals = sqliteTable(
     ),
   ],
 );
+
+export const quotes = sqliteTable(
+  'quotes',
+  {
+    id: text('id').primaryKey(),
+    dealId: text('deal_id')
+      .notNull()
+      .references(() => deals.id),
+    version: integer('version').notNull(),
+    optionKey: text('option_key', {
+      enum: ['best-value', 'balanced', 'premium-under-cap'],
+    }).notNull(),
+    label: text('label').notNull(),
+    rationale: text('rationale').notNull(),
+    linesJson: text('lines_json').notNull(),
+    checksJson: text('checks_json').notNull(),
+    quantity: integer('quantity').notNull(),
+    unitTotalPaise: integer('unit_total_paise').notNull(),
+    orderTotalPaise: integer('order_total_paise').notNull(),
+    unitCostPaise: integer('unit_cost_paise').notNull(),
+    contributionMarginBps: integer('contribution_margin_bps').notNull(),
+    intentHash: text('intent_hash').notNull(),
+    quoteHash: text('quote_hash').notNull(),
+    status: text('status', {
+      enum: ['merchant_approved', 'buyer_accepted', 'superseded', 'expired'],
+    }).notNull(),
+    expiresAt: text('expires_at').notNull(),
+    createdAt: text('created_at').notNull(),
+    approvedAt: text('approved_at').notNull(),
+    acceptedAt: text('accepted_at'),
+  },
+  (table) => [
+    uniqueIndex('idx_quotes_deal_version').on(table.dealId, table.version),
+    uniqueIndex('idx_quotes_hash').on(table.quoteHash),
+    index('idx_quotes_deal_status').on(table.dealId, table.status),
+  ],
+);
+
+export const quoteEvents = sqliteTable(
+  'quote_events',
+  {
+    id: text('id').primaryKey(),
+    dealId: text('deal_id')
+      .notNull()
+      .references(() => deals.id),
+    quoteId: text('quote_id').references(() => quotes.id),
+    sequence: integer('sequence').notNull(),
+    eventType: text('event_type').notNull(),
+    actorType: text('actor_type', {
+      enum: ['buyer', 'merchant', 'system'],
+    }).notNull(),
+    summary: text('summary').notNull(),
+    dataJson: text('data_json').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => [
+    uniqueIndex('idx_quote_events_deal_sequence').on(table.dealId, table.sequence),
+    uniqueIndex('idx_quote_events_quote_type').on(table.quoteId, table.eventType),
+    index('idx_quote_events_deal_created').on(table.dealId, table.createdAt),
+  ],
+);

@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, sql } from 'drizzle-orm';
 import { env } from 'cloudflare:workers';
 import { deals, purchaseIntents, purchaseRequirements } from '@/db/schema';
 import { ensureDatabase, getDatabase } from '@/src/adapters/db/database';
@@ -27,6 +27,11 @@ export default async function MerchantDealsPage() {
       constraintsJson: purchaseIntents.constraintsJson,
       quantity: purchaseRequirements.quantity,
       maxUnitPaise: purchaseRequirements.maxUnitPaise,
+      latestQuoteStatus: sql<string | null>`(
+        SELECT status FROM quotes
+        WHERE quotes.deal_id = ${deals.id}
+        ORDER BY version DESC LIMIT 1
+      )`,
     })
     .from(deals)
     .innerJoin(purchaseIntents, eq(deals.intentId, purchaseIntents.id))
@@ -98,8 +103,10 @@ export default async function MerchantDealsPage() {
                       </div>
                     </div>
                     <div className="deal-action">
-                      <span>Intent received</span>
-                      <Link className="shape-deal-link" href={`/merchant/deals/${deal.id}`}>Shape request →</Link>
+                      <span>{deal.latestQuoteStatus?.replaceAll('_', ' ') ?? 'Intent received'}</span>
+                      <Link className="shape-deal-link" href={`/merchant/deals/${deal.id}`}>
+                        {deal.latestQuoteStatus ? 'Open deal →' : 'Shape request →'}
+                      </Link>
                     </div>
                   </article>
                 );

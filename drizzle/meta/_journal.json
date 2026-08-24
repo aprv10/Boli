@@ -15,6 +15,13 @@
       "when": 1787602433450,
       "tag": "0001_heavy_mindworm",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787603649987,
+      "tag": "0002_equal_tempest",
+      "breakpoints": true
     }
   ]
 }
