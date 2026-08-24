@@ -12,7 +12,12 @@ const purchaseIntentInput = z.object({
   maxUnitPaise: z.number().int().min(10_000).max(10_000_000),
   deliveryLocations: z.array(z.string().trim().min(2).max(80)).min(1).max(10),
   deadline: z.iso.date(),
-});
+  agentRunId: z.uuid().optional(),
+  agentReviewStatus: z.enum(['confirmed', 'modified']).optional(),
+}).refine(
+  (value) => Boolean(value.agentRunId) === Boolean(value.agentReviewStatus),
+  { message: 'AI trace and review status must be provided together.' },
+);
 
 export async function POST(request: Request) {
   await ensureDatabase(env.DB);
@@ -36,7 +41,25 @@ export async function POST(request: Request) {
   const publicToken = `${crypto.randomUUID()}${crypto.randomUUID()}`.replaceAll('-', '');
   const now = new Date().toISOString();
 
-  await env.DB.batch([
+  if (parsed.data.agentRunId) {
+    const run = await env.DB
+      .prepare("SELECT id FROM agent_runs WHERE id = ? AND status = 'succeeded'")
+      .bind(parsed.data.agentRunId)
+      .first<{ id: string }>();
+    if (!run) {
+      return Response.json(
+        {
+          error: {
+            code: 'INVALID_AGENT_TRACE',
+            message: 'The selected AI interpretation is unavailable. Re-run it or submit manually.',
+          },
+        },
+        { status: 400 },
+      );
+    }
+  }
+
+  const statements = [
     env.DB
       .prepare(
         `INSERT INTO purchase_intents (
@@ -88,7 +111,24 @@ export async function POST(request: Request) {
         }),
         now,
       ),
-  ]);
+  ];
+  if (parsed.data.agentRunId && parsed.data.agentReviewStatus) {
+    statements.push(
+      env.DB
+        .prepare(
+          `INSERT INTO intent_agent_runs (
+            intent_id, agent_run_id, review_status, created_at
+          ) VALUES (?, ?, ?, ?)`,
+        )
+        .bind(
+          intentId,
+          parsed.data.agentRunId,
+          parsed.data.agentReviewStatus,
+          now,
+        ),
+    );
+  }
+  await env.DB.batch(statements);
 
   return Response.json(
     {
@@ -97,6 +137,12 @@ export async function POST(request: Request) {
         publicToken,
         state: 'intent_received',
         createdAt: now,
+        interpretation: parsed.data.agentRunId
+          ? {
+              runId: parsed.data.agentRunId,
+              reviewStatus: parsed.data.agentReviewStatus,
+            }
+          : null,
       },
     },
     { status: 201 },

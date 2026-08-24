@@ -35,6 +35,22 @@ const CREATE_STATEMENTS = [
     created_at TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_purchase_intents_created_at ON purchase_intents(created_at)`,
+  `CREATE TABLE IF NOT EXISTS agent_runs (
+    id TEXT PRIMARY KEY NOT NULL,
+    provider TEXT NOT NULL CHECK (provider IN ('mistral')),
+    model TEXT NOT NULL,
+    operation TEXT NOT NULL CHECK (operation IN ('interpret_rfq')),
+    status TEXT NOT NULL CHECK (status IN ('succeeded', 'failed')),
+    input_json TEXT NOT NULL,
+    output_json TEXT,
+    prompt_tokens INTEGER NOT NULL DEFAULT 0 CHECK (prompt_tokens >= 0),
+    completion_tokens INTEGER NOT NULL DEFAULT 0 CHECK (completion_tokens >= 0),
+    total_tokens INTEGER NOT NULL DEFAULT 0 CHECK (total_tokens >= 0),
+    latency_ms INTEGER NOT NULL CHECK (latency_ms >= 0),
+    failure_code TEXT,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_runs_status_created ON agent_runs(status, created_at)`,
   `CREATE TABLE IF NOT EXISTS purchase_requirements (
     intent_id TEXT PRIMARY KEY NOT NULL REFERENCES purchase_intents(id),
     quantity INTEGER NOT NULL CHECK (quantity > 0),
@@ -42,6 +58,13 @@ const CREATE_STATEMENTS = [
     delivery_locations_json TEXT NOT NULL,
     deadline TEXT NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS intent_agent_runs (
+    intent_id TEXT PRIMARY KEY NOT NULL REFERENCES purchase_intents(id),
+    agent_run_id TEXT NOT NULL REFERENCES agent_runs(id),
+    review_status TEXT NOT NULL CHECK (review_status IN ('confirmed', 'modified')),
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_intent_agent_runs_agent ON intent_agent_runs(agent_run_id)`,
   `CREATE TABLE IF NOT EXISTS deals (
     id TEXT PRIMARY KEY NOT NULL,
     merchant_id TEXT NOT NULL REFERENCES merchants(id),

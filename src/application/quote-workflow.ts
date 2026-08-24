@@ -1,6 +1,8 @@
 import { and, desc, eq } from 'drizzle-orm';
 import {
+  agentRuns,
   deals,
+  intentAgentRuns,
   products,
   purchaseIntents,
   purchaseRequirements,
@@ -44,6 +46,15 @@ export type DealQuoteWorkspace = {
     deadline: string;
     hardConstraints: HardConstraint[];
     deliveryLocations: string[];
+    agentInterpretation: null | {
+      provider: 'mistral';
+      model: string;
+      reviewStatus: 'confirmed' | 'modified';
+      promptTokens: number;
+      completionTokens: number;
+      totalTokens: number;
+      latencyMs: number;
+    };
   };
   result: QuoteEngineResult;
 };
@@ -126,6 +137,13 @@ export async function loadDealQuoteWorkspace(
       maxUnitPaise: purchaseRequirements.maxUnitPaise,
       deliveryLocationsJson: purchaseRequirements.deliveryLocationsJson,
       deadline: purchaseRequirements.deadline,
+      agentProvider: agentRuns.provider,
+      agentModel: agentRuns.model,
+      agentReviewStatus: intentAgentRuns.reviewStatus,
+      agentPromptTokens: agentRuns.promptTokens,
+      agentCompletionTokens: agentRuns.completionTokens,
+      agentTotalTokens: agentRuns.totalTokens,
+      agentLatencyMs: agentRuns.latencyMs,
     })
     .from(deals)
     .innerJoin(purchaseIntents, eq(deals.intentId, purchaseIntents.id))
@@ -133,6 +151,8 @@ export async function loadDealQuoteWorkspace(
       purchaseRequirements,
       eq(purchaseIntents.id, purchaseRequirements.intentId),
     )
+    .leftJoin(intentAgentRuns, eq(purchaseIntents.id, intentAgentRuns.intentId))
+    .leftJoin(agentRuns, eq(intentAgentRuns.agentRunId, agentRuns.id))
     .where(eq(deals.id, dealId))
     .limit(1);
 
@@ -161,6 +181,24 @@ export async function loadDealQuoteWorkspace(
       ...record,
       hardConstraints,
       deliveryLocations,
+      agentInterpretation:
+        record.agentProvider &&
+        record.agentModel &&
+        record.agentReviewStatus &&
+        record.agentPromptTokens !== null &&
+        record.agentCompletionTokens !== null &&
+        record.agentTotalTokens !== null &&
+        record.agentLatencyMs !== null
+          ? {
+              provider: record.agentProvider,
+              model: record.agentModel,
+              reviewStatus: record.agentReviewStatus,
+              promptTokens: record.agentPromptTokens,
+              completionTokens: record.agentCompletionTokens,
+              totalTokens: record.agentTotalTokens,
+              latencyMs: record.agentLatencyMs,
+            }
+          : null,
     },
     result: generateCorporateGiftingQuotes(catalog, {
       quantity: record.quantity,

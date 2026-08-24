@@ -47,6 +47,28 @@ export const purchaseIntents = sqliteTable(
   (table) => [index('idx_purchase_intents_created_at').on(table.createdAt)],
 );
 
+export const agentRuns = sqliteTable(
+  'agent_runs',
+  {
+    id: text('id').primaryKey(),
+    provider: text('provider', { enum: ['mistral'] }).notNull(),
+    model: text('model').notNull(),
+    operation: text('operation', { enum: ['interpret_rfq'] }).notNull(),
+    status: text('status', { enum: ['succeeded', 'failed'] }).notNull(),
+    inputJson: text('input_json').notNull(),
+    outputJson: text('output_json'),
+    promptTokens: integer('prompt_tokens').notNull().default(0),
+    completionTokens: integer('completion_tokens').notNull().default(0),
+    totalTokens: integer('total_tokens').notNull().default(0),
+    latencyMs: integer('latency_ms').notNull(),
+    failureCode: text('failure_code'),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => [
+    index('idx_agent_runs_status_created').on(table.status, table.createdAt),
+  ],
+);
+
 export const purchaseRequirements = sqliteTable('purchase_requirements', {
   intentId: text('intent_id')
     .primaryKey()
@@ -56,6 +78,21 @@ export const purchaseRequirements = sqliteTable('purchase_requirements', {
   deliveryLocationsJson: text('delivery_locations_json').notNull(),
   deadline: text('deadline').notNull(),
 });
+
+export const intentAgentRuns = sqliteTable(
+  'intent_agent_runs',
+  {
+    intentId: text('intent_id')
+      .primaryKey()
+      .references(() => purchaseIntents.id),
+    agentRunId: text('agent_run_id')
+      .notNull()
+      .references(() => agentRuns.id),
+    reviewStatus: text('review_status', { enum: ['confirmed', 'modified'] }).notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => [index('idx_intent_agent_runs_agent').on(table.agentRunId)],
+);
 
 export const deals = sqliteTable(
   'deals',

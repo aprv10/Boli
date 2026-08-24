@@ -65,6 +65,21 @@ button:focus-visible, a:focus-visible, textarea:focus-visible { outline: 3px sol
 .brief-health { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: var(--ink-soft); font-size: 0.65rem; }
 .health-dot { width: 6px; height: 6px; }
 .character-count { margin-left: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ai-read-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 15px; padding: 12px 0 0; border-top: 1px dashed var(--line); }
+.ai-read-row button { cursor: pointer; padding: 9px 12px; border: 1px solid var(--ink); background: var(--acid); color: var(--ink); font-size: 0.76rem; font-weight: 900; transition: transform 160ms ease, box-shadow 160ms ease; }
+.ai-read-row button:not(:disabled):hover { box-shadow: 3px 3px 0 var(--ink); transform: translate(-2px, -2px); }
+.ai-read-row button:disabled { cursor: wait; opacity: 0.55; }
+.ai-read-row > span { color: var(--ink-soft); font-size: 0.72rem; font-weight: 700; }
+.ai-draft { margin-top: 14px; padding: 16px; border: 1px solid var(--cobalt); background: rgba(52, 87, 241, 0.06); }
+.ai-draft > div { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.ai-draft > div span { color: var(--cobalt); font-size: 0.72rem; font-weight: 900; letter-spacing: 0.06em; text-transform: uppercase; }
+.ai-draft > div strong { font-family: Georgia, "Times New Roman", serif; font-size: 1rem; }
+.ai-draft > p { margin: 11px 0 0; color: var(--ink-soft); font-size: 0.76rem; line-height: 1.55; }
+.ai-draft .ai-draft-warning { padding: 10px; border-left: 3px solid var(--coral); background: rgba(255, 107, 74, 0.1); color: var(--ink); }
+.ai-draft .ai-draft-question { color: var(--cobalt); font-weight: 750; }
+.ai-draft footer { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 13px; }
+.ai-draft footer span { padding: 5px 8px; border: 1px solid rgba(52, 87, 241, 0.22); border-radius: 999px; color: var(--ink-soft); font-size: 0.72rem; font-weight: 750; }
+.ai-read-error { margin: 12px 0 0; padding: 11px 13px; border-left: 3px solid var(--coral); background: rgba(255, 107, 74, 0.1); color: #8d2c1b; font-size: 0.76rem; line-height: 1.5; }
 .buying-rails { display: grid; grid-template-columns: 0.7fr 0.9fr 1.7fr 1fr; gap: 10px; margin: 24px 0 0; padding: 18px 0 0; border: 0; border-top: 1px solid var(--line); }
 .buying-rails legend { float: left; width: 100%; margin-bottom: 12px; color: var(--ink-soft); font-size: 0.72rem; font-weight: 780; letter-spacing: 0.04em; text-transform: uppercase; }
 .buying-rails label { display: grid; min-width: 0; gap: 7px; }
@@ -180,6 +195,10 @@ button:focus-visible, a:focus-visible, textarea:focus-visible { outline: 3px sol
 .locked-list { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 26px; }
 .locked-list p { width: 100%; margin: 0 0 5px; color: rgba(255, 255, 255, 0.48); font-size: 0.72rem; font-weight: 750; }
 .locked-list span { padding: 7px 9px; border: 1px solid rgba(217, 255, 104, 0.3); border-radius: 999px; color: var(--acid); font-size: 0.7rem; font-weight: 750; text-transform: capitalize; }
+.agent-trace { display: flex; gap: 10px; margin-top: 20px; padding: 13px; border: 1px solid rgba(52, 87, 241, 0.55); background: rgba(52, 87, 241, 0.12); }
+.agent-trace > span { color: var(--acid); font-size: 1rem; }
+.agent-trace p { margin: 0; color: rgba(255, 255, 255, 0.58); font-size: 0.74rem; line-height: 1.5; }
+.agent-trace strong { display: block; color: white; font-size: 0.78rem; }
 .no-money-notice { display: flex; gap: 10px; margin-top: 28px; padding: 14px; border: 1px dashed rgba(255, 255, 255, 0.22); }
 .no-money-notice > span { color: var(--acid); font-size: 1.2rem; }
 .no-money-notice p { margin: 0; color: rgba(255, 255, 255, 0.5); font-size: 0.7rem; line-height: 1.45; }
@@ -324,6 +343,8 @@ button:focus-visible, a:focus-visible, textarea:focus-visible { outline: 3px sol
   .brief-card { padding: 24px 20px; border-radius: 6px 24px 6px 24px; }
   .brief-card textarea { min-height: 230px; }
   .buying-rails { grid-template-columns: 1fr 1fr; }
+  .ai-read-row { align-items: flex-start; flex-direction: column; }
+  .ai-draft > div { align-items: flex-start; flex-direction: column; }
   .location-input { grid-column: 1 / -1; }
   .merchant-ribbon { align-items: flex-start; flex-wrap: wrap; }
   .merchant-meta { width: 100%; margin-left: 50px; }

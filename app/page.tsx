@@ -13,6 +13,31 @@ const constraintOptions = [
   { id: 'multi-city', label: 'Multi-city' },
 ] as const;
 
+type Interpretation = {
+  requestTitle: string;
+  quantity: number | null;
+  budgetKind: 'per_unit' | 'total' | 'unknown';
+  budgetInr: number | null;
+  deliveryLocations: string[];
+  deadline: string | null;
+  hardConstraints: string[];
+  missingFields: string[];
+  clarifyingQuestion: string | null;
+};
+
+type InterpretationResponse = {
+  runId?: string;
+  model?: string;
+  interpretation?: Interpretation;
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
+  latencyMs?: number;
+  error?: { message?: string };
+};
+
 function getNextFriday() {
   const date = new Date();
   const daysUntilFriday = (5 - date.getDay() + 7) % 7 || 7;
@@ -44,6 +69,16 @@ export default function Home() {
   const [maxPerKit, setMaxPerKit] = useState(900);
   const [deliveryLocations, setDeliveryLocations] = useState('Bengaluru, Pune');
   const [deadline, setDeadline] = useState(getNextFriday);
+  const [interpreting, setInterpreting] = useState(false);
+  const [interpretation, setInterpretation] = useState<Interpretation | null>(null);
+  const [interpretationMeta, setInterpretationMeta] = useState<{
+    model: string;
+    totalTokens: number;
+    latencyMs: number;
+  } | null>(null);
+  const [interpretError, setInterpretError] = useState('');
+  const [agentRunId, setAgentRunId] = useState('');
+  const [agentDraftEdited, setAgentDraftEdited] = useState(false);
 
   const characterState = useMemo(() => {
     if (brief.length < 40) return 'A little more detail will help';
@@ -54,11 +89,69 @@ export default function Home() {
   function toggleConstraint(id: string) {
     setCaptured(false);
     setDealReference('');
+    if (agentRunId) setAgentDraftEdited(true);
     setConstraints((current) =>
       current.includes(id)
         ? current.filter((constraint) => constraint !== id)
         : [...current, id],
     );
+  }
+
+  function markRailEdited() {
+    setCaptured(false);
+    if (agentRunId) setAgentDraftEdited(true);
+  }
+
+  function clearInterpretation() {
+    setInterpretation(null);
+    setInterpretationMeta(null);
+    setInterpretError('');
+    setAgentRunId('');
+    setAgentDraftEdited(false);
+  }
+
+  async function interpretBrief() {
+    setInterpreting(true);
+    setInterpretError('');
+    setCaptured(false);
+    setDealReference('');
+
+    try {
+      const response = await fetch('/api/agent/interpret', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ brief }),
+      });
+      const result = (await response.json()) as InterpretationResponse;
+      if (!response.ok || !result.interpretation || !result.runId) {
+        throw new Error(result.error?.message ?? 'Boli could not interpret this request.');
+      }
+
+      const draft = result.interpretation;
+      if (draft.quantity !== null) setQuantity(draft.quantity);
+      if (draft.budgetKind === 'per_unit' && draft.budgetInr !== null) {
+        setMaxPerKit(Math.round(draft.budgetInr));
+      }
+      if (draft.deliveryLocations.length) {
+        setDeliveryLocations(draft.deliveryLocations.join(', '));
+      }
+      if (draft.deadline) setDeadline(draft.deadline);
+      setConstraints(draft.hardConstraints);
+      setInterpretation(draft);
+      setInterpretationMeta({
+        model: result.model ?? 'mistral-small-2603',
+        totalTokens: result.usage?.totalTokens ?? 0,
+        latencyMs: result.latencyMs ?? 0,
+      });
+      setAgentRunId(result.runId);
+      setAgentDraftEdited(false);
+    } catch (error) {
+      setInterpretError(
+        error instanceof Error ? error.message : 'Boli could not interpret this request.',
+      );
+    } finally {
+      setInterpreting(false);
+    }
   }
 
   async function submitBrief() {
@@ -80,6 +173,12 @@ export default function Home() {
             .map((location) => location.trim())
             .filter(Boolean),
           deadline,
+          ...(agentRunId
+            ? {
+                agentRunId,
+                agentReviewStatus: agentDraftEdited ? 'modified' : 'confirmed',
+              }
+            : {}),
         }),
       });
       const result = (await response.json()) as {
@@ -151,7 +250,12 @@ export default function Home() {
               id="purchase-brief"
               maxLength={600}
               value={brief}
-              onChange={(event) => { setBrief(event.target.value); setCaptured(false); setDealReference(''); }}
+              onChange={(event) => {
+                setBrief(event.target.value);
+                setCaptured(false);
+                setDealReference('');
+                clearInterpretation();
+              }}
               placeholder="Tell Boli what you need, how many, your budget and what cannot change…"
             />
 
@@ -160,6 +264,47 @@ export default function Home() {
               {characterState}
               <span className="character-count">{brief.length}/600</span>
             </div>
+
+            <div className="ai-read-row">
+              <button
+                type="button"
+                disabled={brief.trim().length < 40 || interpreting || submitting}
+                onClick={interpretBrief}
+              >
+                <span aria-hidden="true">✦</span>
+                {interpreting ? 'Reading once with Mistral…' : 'Let Boli read this'}
+              </button>
+              <span>1 capped call · max 320 output tokens</span>
+            </div>
+
+            {interpretation ? (
+              <div className="ai-draft" role="status">
+                <div>
+                  <span>AI draft · review required</span>
+                  <strong>{interpretation.requestTitle}</strong>
+                </div>
+                <p>
+                  Buying rails below were populated from the brief. They remain editable and
+                  become authoritative only when you submit them.
+                </p>
+                {interpretation.budgetKind === 'total' ? (
+                  <p className="ai-draft-warning">
+                    A total-order budget was detected. Enter the per-kit ceiling manually—Boli
+                    will not let the model divide or invent it.
+                  </p>
+                ) : null}
+                {interpretation.clarifyingQuestion ? (
+                  <p className="ai-draft-question">↳ {interpretation.clarifyingQuestion}</p>
+                ) : null}
+                <footer>
+                  <span>{interpretationMeta?.model}</span>
+                  <span>{interpretationMeta?.totalTokens.toLocaleString('en-IN')} tokens</span>
+                  <span>{interpretationMeta?.latencyMs.toLocaleString('en-IN')} ms</span>
+                  <span>{agentDraftEdited ? 'buyer modified' : 'awaiting confirmation'}</span>
+                </footer>
+              </div>
+            ) : null}
+            {interpretError ? <p className="ai-read-error" role="alert">{interpretError}</p> : null}
 
             <fieldset className="buying-rails">
               <legend>Buying rails</legend>
@@ -172,21 +317,21 @@ export default function Home() {
                   value={quantity}
                   onChange={(event) => {
                     setQuantity(Number(event.target.value));
-                    setCaptured(false);
+                    markRailEdited();
                   }}
                 />
               </label>
               <label>
                 <span>Max / kit</span>
-                <div className="money-input"><b>₹</b><input type="number" min="100" max="100000" value={maxPerKit} onChange={(event) => { setMaxPerKit(Number(event.target.value)); setCaptured(false); }} /></div>
+                <div className="money-input"><b>₹</b><input type="number" min="100" max="100000" value={maxPerKit} onChange={(event) => { setMaxPerKit(Number(event.target.value)); markRailEdited(); }} /></div>
               </label>
               <label className="location-input">
                 <span>Deliver to</span>
-                <input type="text" value={deliveryLocations} onChange={(event) => { setDeliveryLocations(event.target.value); setCaptured(false); }} />
+                <input type="text" value={deliveryLocations} onChange={(event) => { setDeliveryLocations(event.target.value); markRailEdited(); }} />
               </label>
               <label>
                 <span>Deadline</span>
-                <input type="date" value={deadline} onChange={(event) => { setDeadline(event.target.value); setCaptured(false); }} />
+                <input type="date" value={deadline} onChange={(event) => { setDeadline(event.target.value); markRailEdited(); }} />
               </label>
             </fieldset>
 
@@ -204,7 +349,7 @@ export default function Home() {
               </div>
             </div>
 
-            <button className="shape-button" type="button" disabled={brief.trim().length < 40 || quantity < 10 || maxPerKit < 100 || !deliveryLocations.trim() || !deadline || submitting} onClick={submitBrief}>
+            <button className="shape-button" type="button" disabled={captured || brief.trim().length < 40 || quantity < 10 || maxPerKit < 100 || !deliveryLocations.trim() || !deadline || submitting || interpreting} onClick={submitBrief}>
               <span>{submitting ? 'Opening the deal…' : captured ? 'Brief captured' : 'Shape my request'}</span>
               <span className="button-arrow" aria-hidden="true">{submitting ? '···' : captured ? '✓' : '↗'}</span>
             </button>

@@ -72,6 +72,18 @@ export default async function MerchantDealPage({ params }: DealPageProps) {
             ))}
           </div>
 
+          {deal.agentInterpretation ? (
+            <div className="agent-trace">
+              <span aria-hidden="true">✦</span>
+              <p>
+                <strong>Mistral interpretation attached</strong>
+                {deal.agentInterpretation.model} · buyer {deal.agentInterpretation.reviewStatus} ·{' '}
+                {deal.agentInterpretation.totalTokens.toLocaleString('en-IN')} tokens ·{' '}
+                {deal.agentInterpretation.latencyMs.toLocaleString('en-IN')} ms
+              </p>
+            </div>
+          ) : null}
+
           <div className="no-money-notice">
             <span aria-hidden="true">◇</span>
             <p>
