@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 
 const startingBrief =
   'I need 120 thoughtful welcome kits for our new team. Keep each kit under ₹900, make everything vegan and plastic-free, add our logo, and split delivery between Bengaluru and Pune by Friday.';
@@ -11,6 +12,21 @@ const constraintOptions = [
   { id: 'branded', label: 'Logo branding' },
   { id: 'multi-city', label: 'Multi-city' },
 ] as const;
+
+function getNextFriday() {
+  const date = new Date();
+  const daysUntilFriday = (5 - date.getDay() + 7) % 7 || 7;
+  date.setDate(date.getDate() + daysUntilFriday);
+  return date.toISOString().slice(0, 10);
+}
+
+function formatDeadline(value: string) {
+  if (!value) return 'Not set';
+  return new Intl.DateTimeFormat('en-IN', {
+    day: 'numeric',
+    month: 'short',
+  }).format(new Date(`${value}T12:00:00`));
+}
 
 export default function Home() {
   const [brief, setBrief] = useState(startingBrief);
@@ -24,6 +40,10 @@ export default function Home() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [dealReference, setDealReference] = useState('');
+  const [quantity, setQuantity] = useState(120);
+  const [maxPerKit, setMaxPerKit] = useState(900);
+  const [deliveryLocations, setDeliveryLocations] = useState('Bengaluru, Pune');
+  const [deadline, setDeadline] = useState(getNextFriday);
 
   const characterState = useMemo(() => {
     if (brief.length < 40) return 'A little more detail will help';
@@ -50,7 +70,17 @@ export default function Home() {
       const response = await fetch('/api/intents', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ rawText: brief, hardConstraints: constraints }),
+        body: JSON.stringify({
+          rawText: brief,
+          hardConstraints: constraints,
+          quantity,
+          maxUnitPaise: maxPerKit * 100,
+          deliveryLocations: deliveryLocations
+            .split(',')
+            .map((location) => location.trim())
+            .filter(Boolean),
+          deadline,
+        }),
       });
       const result = (await response.json()) as {
         deal?: { id: string };
@@ -131,6 +161,35 @@ export default function Home() {
               <span className="character-count">{brief.length}/600</span>
             </div>
 
+            <fieldset className="buying-rails">
+              <legend>Buying rails</legend>
+              <label>
+                <span>Quantity</span>
+                <input
+                  type="number"
+                  min="10"
+                  max="10000"
+                  value={quantity}
+                  onChange={(event) => {
+                    setQuantity(Number(event.target.value));
+                    setCaptured(false);
+                  }}
+                />
+              </label>
+              <label>
+                <span>Max / kit</span>
+                <div className="money-input"><b>₹</b><input type="number" min="100" max="100000" value={maxPerKit} onChange={(event) => { setMaxPerKit(Number(event.target.value)); setCaptured(false); }} /></div>
+              </label>
+              <label className="location-input">
+                <span>Deliver to</span>
+                <input type="text" value={deliveryLocations} onChange={(event) => { setDeliveryLocations(event.target.value); setCaptured(false); }} />
+              </label>
+              <label>
+                <span>Deadline</span>
+                <input type="date" value={deadline} onChange={(event) => { setDeadline(event.target.value); setCaptured(false); }} />
+              </label>
+            </fieldset>
+
             <div className="constraint-block">
               <p>What must not change?</p>
               <div className="constraint-list">
@@ -145,13 +204,13 @@ export default function Home() {
               </div>
             </div>
 
-            <button className="shape-button" type="button" disabled={brief.trim().length < 40 || submitting} onClick={submitBrief}>
+            <button className="shape-button" type="button" disabled={brief.trim().length < 40 || quantity < 10 || maxPerKit < 100 || !deliveryLocations.trim() || !deadline || submitting} onClick={submitBrief}>
               <span>{submitting ? 'Opening the deal…' : captured ? 'Brief captured' : 'Shape my request'}</span>
               <span className="button-arrow" aria-hidden="true">{submitting ? '···' : captured ? '✓' : '↗'}</span>
             </button>
 
             <p className={`capture-note ${captured ? 'capture-note-visible' : ''}`} role="status">
-              Saved as BOLI / {dealReference}. <a href="/merchant/deals">See it arrive at the merchant desk →</a>
+              Saved as BOLI / {dealReference}. <Link href="/merchant/deals">See it arrive at the merchant desk →</Link>
             </p>
             {submitError ? <p className="submit-error" role="alert">{submitError}</p> : null}
           </div>
@@ -170,10 +229,10 @@ export default function Home() {
             <h2>Employee welcome kits</h2>
 
             <dl className="mandate-grid">
-              <div><dt>Quantity</dt><dd>120</dd></div>
-              <div><dt>Max / kit</dt><dd>₹900</dd></div>
-              <div><dt>Deliver to</dt><dd>2 cities</dd></div>
-              <div><dt>Needed by</dt><dd>Friday</dd></div>
+              <div><dt>Quantity</dt><dd>{quantity}</dd></div>
+              <div><dt>Max / kit</dt><dd>₹{maxPerKit.toLocaleString('en-IN')}</dd></div>
+              <div><dt>Deliver to</dt><dd>{deliveryLocations.split(',').filter((location) => location.trim()).length} cities</dd></div>
+              <div><dt>Needed by</dt><dd>{formatDeadline(deadline)}</dd></div>
             </dl>
 
             <div className="mandate-constraints">

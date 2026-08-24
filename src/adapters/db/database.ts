@@ -35,6 +35,13 @@ const CREATE_STATEMENTS = [
     created_at TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_purchase_intents_created_at ON purchase_intents(created_at)`,
+  `CREATE TABLE IF NOT EXISTS purchase_requirements (
+    intent_id TEXT PRIMARY KEY NOT NULL REFERENCES purchase_intents(id),
+    quantity INTEGER NOT NULL CHECK (quantity > 0),
+    max_unit_paise INTEGER NOT NULL CHECK (max_unit_paise > 0),
+    delivery_locations_json TEXT NOT NULL,
+    deadline TEXT NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS deals (
     id TEXT PRIMARY KEY NOT NULL,
     merchant_id TEXT NOT NULL REFERENCES merchants(id),

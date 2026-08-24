@@ -8,6 +8,13 @@
       "when": 1787599661286,
       "tag": "0000_glamorous_warlock",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1787602433450,
+      "tag": "0001_heavy_mindworm",
+      "breakpoints": true
     }
   ]
 }

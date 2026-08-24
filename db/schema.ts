@@ -47,6 +47,16 @@ export const purchaseIntents = sqliteTable(
   (table) => [index('idx_purchase_intents_created_at').on(table.createdAt)],
 );
 
+export const purchaseRequirements = sqliteTable('purchase_requirements', {
+  intentId: text('intent_id')
+    .primaryKey()
+    .references(() => purchaseIntents.id),
+  quantity: integer('quantity').notNull(),
+  maxUnitPaise: integer('max_unit_paise').notNull(),
+  deliveryLocationsJson: text('delivery_locations_json').notNull(),
+  deadline: text('deadline').notNull(),
+});
+
 export const deals = sqliteTable(
   'deals',
   {

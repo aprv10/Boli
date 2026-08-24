@@ -8,6 +8,10 @@ const purchaseIntentInput = z.object({
   hardConstraints: z
     .array(z.enum(['vegan', 'plastic-free', 'branded', 'multi-city']))
     .max(8),
+  quantity: z.number().int().min(10).max(10_000),
+  maxUnitPaise: z.number().int().min(10_000).max(10_000_000),
+  deliveryLocations: z.array(z.string().trim().min(2).max(80)).min(1).max(10),
+  deadline: z.iso.date(),
 });
 
 export async function POST(request: Request) {
@@ -45,6 +49,19 @@ export async function POST(request: Request) {
         parsed.data.rawText,
         JSON.stringify(parsed.data.hardConstraints),
         now,
+      ),
+    env.DB
+      .prepare(
+        `INSERT INTO purchase_requirements (
+          intent_id, quantity, max_unit_paise, delivery_locations_json, deadline
+        ) VALUES (?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        intentId,
+        parsed.data.quantity,
+        parsed.data.maxUnitPaise,
+        JSON.stringify(parsed.data.deliveryLocations),
+        parsed.data.deadline,
       ),
     env.DB
       .prepare(

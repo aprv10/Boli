@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { desc, eq } from 'drizzle-orm';
 import { env } from 'cloudflare:workers';
-import { deals, purchaseIntents } from '@/db/schema';
+import { deals, purchaseIntents, purchaseRequirements } from '@/db/schema';
 import { ensureDatabase, getDatabase } from '@/src/adapters/db/database';
 import { DEMO_MERCHANT } from '@/src/adapters/db/seed-data';
 import { ResetDemoButton } from './reset-demo-button';
@@ -25,9 +25,12 @@ export default async function MerchantDealsPage() {
       createdAt: deals.createdAt,
       rawText: purchaseIntents.rawText,
       constraintsJson: purchaseIntents.constraintsJson,
+      quantity: purchaseRequirements.quantity,
+      maxUnitPaise: purchaseRequirements.maxUnitPaise,
     })
     .from(deals)
     .innerJoin(purchaseIntents, eq(deals.intentId, purchaseIntents.id))
+    .innerJoin(purchaseRequirements, eq(purchaseIntents.id, purchaseRequirements.intentId))
     .where(eq(deals.merchantId, DEMO_MERCHANT.id))
     .orderBy(desc(deals.createdAt));
 
@@ -89,12 +92,14 @@ export default async function MerchantDealsPage() {
                       </div>
                       <p>{deal.rawText}</p>
                       <div className="deal-constraints">
+                        <span>{deal.quantity} kits</span>
+                        <span>₹{Math.round(deal.maxUnitPaise / 100).toLocaleString('en-IN')} max / kit</span>
                         {constraints.map((constraint) => <span key={constraint}>{constraint.replace('-', ' ')}</span>)}
                       </div>
                     </div>
                     <div className="deal-action">
                       <span>Intent received</span>
-                      <button type="button" disabled>Shape next →</button>
+                      <Link className="shape-deal-link" href={`/merchant/deals/${deal.id}`}>Shape request →</Link>
                     </div>
                   </article>
                 );
