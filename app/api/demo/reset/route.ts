@@ -9,6 +9,7 @@ export async function POST() {
   await ensureDatabase(env.DB);
   await env.DB.batch([
     env.DB.prepare('DELETE FROM quote_events'),
+    env.DB.prepare('DELETE FROM counteroffers'),
     env.DB.prepare('DELETE FROM quotes'),
     env.DB.prepare('DELETE FROM deals'),
     env.DB.prepare('DELETE FROM intent_agent_runs'),

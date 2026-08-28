@@ -318,6 +318,64 @@ button:focus-visible, a:focus-visible, textarea:focus-visible { outline: 3px sol
 .quote-version-history span { color: var(--acid); font-size: 0.72rem; font-weight: 800; text-transform: capitalize; }
 .quote-version-history code { grid-column: 1 / -1; color: rgba(255, 255, 255, 0.48); font-size: 0.72rem; }
 
+.counteroffer-console { position: relative; margin-top: 34px; padding: 24px; overflow: hidden; border: 1px solid var(--ink); background: #fff7dc; box-shadow: 7px 7px 0 var(--coral); }
+.counteroffer-console::before { content: ""; position: absolute; top: -70px; right: -45px; width: 170px; height: 170px; border: 1px solid rgba(52, 87, 241, 0.2); border-radius: 50%; box-shadow: 0 0 0 22px rgba(52, 87, 241, 0.05), 0 0 0 45px rgba(52, 87, 241, 0.035); pointer-events: none; }
+.counteroffer-console-heading { position: relative; display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.counteroffer-console-heading span { color: var(--cobalt); font-size: 0.74rem; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; }
+.counteroffer-console-heading h3 { max-width: 520px; margin: 7px 0 0; font-family: Georgia, "Times New Roman", serif; font-size: clamp(1.8rem, 3vw, 3.2rem); font-weight: 500; letter-spacing: -0.05em; line-height: 0.98; }
+.counteroffer-console-heading > strong { position: relative; flex: 0 0 auto; padding: 8px 10px; border: 1px solid var(--ink); background: var(--acid); font-size: 0.72rem; font-weight: 900; transform: rotate(2deg); }
+.counteroffer-intro { position: relative; max-width: 680px; margin: 16px 0 20px; color: var(--ink-soft); font-size: 0.78rem; line-height: 1.6; }
+.counteroffer-locked { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; padding: 12px; border: 1px dashed rgba(23, 35, 29, 0.32); background: rgba(255, 255, 255, 0.52); }
+.counteroffer-locked > span { margin-right: 5px; color: var(--ink-soft); font-size: 0.72rem; font-weight: 850; text-transform: uppercase; }
+.counteroffer-locked strong { padding: 6px 8px; border-radius: 999px; background: var(--ink); color: var(--acid); font-size: 0.72rem; text-transform: capitalize; }
+.counteroffer-fields { display: grid; grid-template-columns: minmax(160px, 0.35fr) minmax(260px, 1fr); gap: 12px; margin-top: 16px; }
+.counteroffer-fields label > span { display: block; margin-bottom: 7px; color: var(--ink-soft); font-size: 0.72rem; font-weight: 850; }
+.money-field { display: flex; height: 100%; min-height: 76px; align-items: center; border: 1px solid var(--ink); background: white; }
+.money-field b { padding-left: 14px; color: var(--cobalt); font-family: Georgia, "Times New Roman", serif; font-size: 1.4rem; }
+.money-field input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; padding: 13px 12px 13px 7px; color: var(--ink); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1.2rem; font-weight: 900; }
+.counteroffer-fields textarea { width: 100%; min-height: 76px; resize: vertical; border: 1px solid var(--ink); outline: 0; background: white; padding: 12px; color: var(--ink); font: inherit; font-size: 0.76rem; line-height: 1.5; }
+.counteroffer-fields textarea:focus, .money-field:focus-within { box-shadow: 3px 3px 0 var(--cobalt); }
+.counteroffer-submit { width: 100%; margin-top: 12px; cursor: pointer; padding: 14px 16px; border: 1px solid var(--ink); background: var(--ink); color: white; font-size: 0.78rem; font-weight: 900; transition: transform 160ms ease, box-shadow 160ms ease; }
+.counteroffer-submit:not(:disabled):hover { box-shadow: 4px 4px 0 var(--cobalt); transform: translate(-2px, -2px); }
+.counteroffer-submit:disabled { cursor: default; opacity: 0.52; }
+.counteroffer-result { margin-top: 14px; padding: 14px; border: 1px solid var(--ink); background: white; }
+.counteroffer-result > span { display: inline-block; padding: 5px 7px; background: var(--cobalt); color: white; font-size: 0.72rem; font-weight: 900; text-transform: uppercase; }
+.counteroffer-result p { margin: 9px 0 6px; font-size: 0.78rem; line-height: 1.5; }
+.counteroffer-result strong { display: block; color: var(--cobalt); font-size: 0.8rem; }
+.counteroffer-result small { display: block; margin-top: 8px; color: var(--ink-soft); font-size: 0.72rem; text-transform: lowercase; }
+.counteroffer-result-bounded_counteroffer { background: #fff0e7; }
+.counteroffer-result-merchant_approval_required { background: #edf0ff; }
+.counteroffer-result-rejected { background: #ffe4dc; }
+.counteroffer-error { margin: 12px 0 0; color: #a1291b; font-size: 0.75rem; font-weight: 750; }
+
+.deal-room-negotiation-history article { padding: 15px 0; border-top: 1px solid rgba(255, 255, 255, 0.12); }
+.deal-room-negotiation-history article > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.deal-room-negotiation-history strong { font-size: 0.78rem; }
+.deal-room-negotiation-history article span { color: var(--acid); font-size: 0.72rem; font-weight: 850; text-transform: capitalize; }
+.deal-room-negotiation-history article p { margin: 8px 0 0; color: rgba(255, 255, 255, 0.62); font-size: 0.74rem; line-height: 1.5; }
+.deal-room-negotiation-history article small { display: block; margin-top: 7px; color: rgba(255, 255, 255, 0.38); font-size: 0.72rem; text-transform: lowercase; }
+
+.merchant-counteroffer-gate { margin-bottom: 40px; border: 1px solid var(--ink); background: #edf0ff; box-shadow: 8px 8px 0 var(--cobalt); }
+.merchant-counteroffer-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; padding: 24px; border-bottom: 1px solid var(--ink); }
+.merchant-counteroffer-heading h2 { margin: 7px 0 0; font-family: Georgia, "Times New Roman", serif; font-size: clamp(2rem, 3.4vw, 4rem); font-weight: 500; letter-spacing: -0.055em; }
+.merchant-counteroffer-heading > span { padding: 7px 9px; border: 1px solid var(--ink); background: var(--coral); font-size: 0.72rem; font-weight: 900; }
+.merchant-counteroffer-gate article { padding: 24px; }
+.merchant-counteroffer-gate article + article { border-top: 1px solid var(--ink); }
+.merchant-counteroffer-prices { display: grid; grid-template-columns: auto auto 32px auto auto; gap: 10px; align-items: end; width: fit-content; }
+.merchant-counteroffer-prices span { color: var(--ink-soft); font-size: 0.72rem; font-weight: 800; }
+.merchant-counteroffer-prices strong { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1rem; }
+.merchant-counteroffer-prices i { grid-row: 1 / span 2; grid-column: 3; align-self: center; color: var(--cobalt); font-size: 1.4rem; font-style: normal; }
+.merchant-counteroffer-gate blockquote { max-width: 720px; margin: 20px 0 10px; padding-left: 14px; border-left: 3px solid var(--cobalt); font-family: Georgia, "Times New Roman", serif; font-size: 1rem; line-height: 1.45; }
+.merchant-counteroffer-gate article > p { max-width: 720px; margin: 0; color: var(--ink-soft); font-size: 0.76rem; line-height: 1.55; }
+.merchant-counteroffer-checks { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 17px; }
+.merchant-counteroffer-checks span { padding: 6px 8px; border: 1px solid rgba(23, 35, 29, 0.2); font-size: 0.72rem; font-weight: 800; }
+.merchant-counteroffer-checks .passed { color: #236444; background: #dff5e9; }
+.merchant-counteroffer-checks .failed { color: #9b2c1e; background: #ffe4dc; }
+.counteroffer-approval-control { display: flex; align-items: center; gap: 14px; margin-top: 18px; }
+.counteroffer-approval-control button { cursor: pointer; padding: 12px 15px; border: 1px solid var(--ink); background: var(--cobalt); color: white; font-size: 0.76rem; font-weight: 900; }
+.counteroffer-approval-control button:disabled { cursor: default; opacity: 0.55; }
+.counteroffer-approval-control p { margin: 0; color: #a1291b; font-size: 0.72rem; }
+
 @media (max-width: 1120px) {
   .request-stage { grid-template-columns: minmax(260px, 0.8fr) minmax(430px, 1.2fr); }
   .mandate-panel { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(300px, 520px) 220px; justify-content: center; align-items: center; gap: 28px; padding: 56px; border-top: 1px solid var(--line); border-left: 0; }
@@ -380,6 +438,13 @@ button:focus-visible, a:focus-visible, textarea:focus-visible { outline: 3px sol
   .executable-totals { grid-template-columns: 1fr; }
   .executable-totals .executable-grand-total { grid-column: 1; }
   .deal-room-proof { padding: 52px 22px 70px; }
+  .counteroffer-console { padding: 20px 16px; }
+  .counteroffer-console-heading { flex-direction: column; }
+  .counteroffer-fields { grid-template-columns: 1fr; }
+  .money-field { min-height: 58px; }
+  .merchant-counteroffer-heading { align-items: flex-start; flex-direction: column; }
+  .merchant-counteroffer-prices { grid-template-columns: 1fr 1fr; width: 100%; }
+  .merchant-counteroffer-prices i { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

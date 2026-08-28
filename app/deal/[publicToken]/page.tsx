@@ -3,8 +3,10 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { env } from 'cloudflare:workers';
 import { ensureDatabase } from '@/src/adapters/db/database';
+import { loadDealCounteroffers } from '@/src/application/counteroffer-workflow';
 import { loadPublicDealRoom } from '@/src/application/quote-workflow';
 import { AcceptQuoteButton } from './accept-quote-button';
+import { CounterofferPanel } from './counteroffer-panel';
 
 type DealRoomPageProps = { params: Promise<{ publicToken: string }> };
 
@@ -44,6 +46,7 @@ export default async function DealRoomPage({ params }: DealRoomPageProps) {
   await ensureDatabase(env.DB);
   const room = await loadPublicDealRoom(env.DB, publicToken);
   if (!room) notFound();
+  const counterofferHistory = await loadDealCounteroffers(env.DB, room.deal.id);
 
   const quote = room.currentQuote;
   const isExpired = quote
@@ -124,6 +127,16 @@ export default async function DealRoomPage({ params }: DealRoomPageProps) {
               <p>The merchant approval and your acceptance both point to this exact fingerprint.</p>
             </div>
 
+            {!accepted ? (
+              <CounterofferPanel
+                publicToken={publicToken}
+                quoteHash={quote.quoteHash}
+                currentUnitPaise={quote.unitTotalPaise}
+                hardConstraints={room.deal.hardConstraints}
+                disabled={isExpired}
+              />
+            ) : null}
+
             {isExpired && !accepted ? (
               <div className="deal-room-expired">
                 <strong>Acceptance blocked</strong>
@@ -176,6 +189,23 @@ export default async function DealRoomPage({ params }: DealRoomPageProps) {
                 </div>
               ))}
             </section>
+
+            {counterofferHistory.length ? (
+              <section className="deal-room-negotiation-history">
+                <p className="micro-label">Negotiation history</p>
+                <h2>Every ask, bounded</h2>
+                {counterofferHistory.map((counteroffer) => (
+                  <article key={counteroffer.id}>
+                    <div>
+                      <strong>{formatMoney(counteroffer.targetUnitPaise)} target</strong>
+                      <span>{statusLabel(counteroffer.status)}</span>
+                    </div>
+                    <p>{counteroffer.decisionSummary}</p>
+                    <small>{counteroffer.reasonCodes.join(' · ').replaceAll('_', ' ')}</small>
+                  </article>
+                ))}
+              </section>
+            ) : null}
           </aside>
         </section>
       )}

@@ -157,6 +157,44 @@ export const quotes = sqliteTable(
   ],
 );
 
+export const counteroffers = sqliteTable(
+  'counteroffers',
+  {
+    id: text('id').primaryKey(),
+    dealId: text('deal_id')
+      .notNull()
+      .references(() => deals.id),
+    sourceQuoteId: text('source_quote_id')
+      .notNull()
+      .references(() => quotes.id),
+    proposedQuoteId: text('proposed_quote_id').references(() => quotes.id),
+    sourceKind: text('source_kind', {
+      enum: ['structured', 'natural_language'],
+    }).notNull(),
+    buyerMessage: text('buyer_message').notNull(),
+    targetUnitPaise: integer('target_unit_paise').notNull(),
+    status: text('status', {
+      enum: [
+        'auto_approved',
+        'bounded_counteroffer',
+        'merchant_approval_required',
+        'merchant_approved',
+        'rejected',
+      ],
+    }).notNull(),
+    proposedOptionJson: text('proposed_option_json'),
+    checksJson: text('checks_json').notNull(),
+    reasonCodesJson: text('reason_codes_json').notNull(),
+    decisionSummary: text('decision_summary').notNull(),
+    createdAt: text('created_at').notNull(),
+    decidedAt: text('decided_at'),
+  },
+  (table) => [
+    index('idx_counteroffers_deal_created').on(table.dealId, table.createdAt),
+    index('idx_counteroffers_deal_status').on(table.dealId, table.status),
+  ],
+);
+
 export const quoteEvents = sqliteTable(
   'quote_events',
   {

@@ -56,6 +56,7 @@ export type DealQuoteWorkspace = {
       latencyMs: number;
     };
   };
+  catalog: CatalogProduct[];
   result: QuoteEngineResult;
 };
 
@@ -200,6 +201,7 @@ export async function loadDealQuoteWorkspace(
             }
           : null,
     },
+    catalog,
     result: generateCorporateGiftingQuotes(catalog, {
       quantity: record.quantity,
       maxUnitPaise: record.maxUnitPaise,

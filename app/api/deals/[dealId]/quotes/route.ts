@@ -31,6 +31,8 @@ export async function POST(request: Request, { params }: RouteContext) {
         version: result.quote.version,
         quoteHash: result.quote.quoteHash,
         status: result.quote.status,
+        unitTotalPaise: result.quote.unitTotalPaise,
+        orderTotalPaise: result.quote.orderTotalPaise,
         expiresAt: result.quote.expiresAt,
       },
       dealRoomPath: `/deal/${result.publicToken}`,

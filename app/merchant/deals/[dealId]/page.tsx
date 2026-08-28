@@ -3,11 +3,13 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { env } from 'cloudflare:workers';
 import { ensureDatabase } from '@/src/adapters/db/database';
+import { loadDealCounteroffers } from '@/src/application/counteroffer-workflow';
 import {
   loadDealQuotes,
   loadDealQuoteWorkspace,
 } from '@/src/application/quote-workflow';
 import { ApproveQuoteButton } from './approve-quote-button';
+import { ApproveCounterofferButton } from './approve-counteroffer-button';
 
 type DealPageProps = { params: Promise<{ dealId: string }> };
 
@@ -36,6 +38,10 @@ export default async function MerchantDealPage({ params }: DealPageProps) {
   if (!workspace) notFound();
   const { deal, result } = workspace;
   const quoteHistory = await loadDealQuotes(env.DB, dealId);
+  const counterofferHistory = await loadDealCounteroffers(env.DB, dealId);
+  const pendingCounteroffers = counterofferHistory.filter(
+    (counteroffer) => counteroffer.status === 'merchant_approval_required',
+  );
   const currentQuote = quoteHistory.find(
     (quote) => quote.status === 'buyer_accepted' || quote.status === 'merchant_approved',
   );
@@ -96,6 +102,46 @@ export default async function MerchantDealPage({ params }: DealPageProps) {
         </aside>
 
         <section className="quote-results" aria-labelledby="quote-results-title">
+          {pendingCounteroffers.length ? (
+            <section className="merchant-counteroffer-gate">
+              <div className="merchant-counteroffer-heading">
+                <div>
+                  <p className="micro-label">Human gate triggered</p>
+                  <h2>Outside Boli’s authority.</h2>
+                </div>
+                <span>{pendingCounteroffers.length} decision pending</span>
+              </div>
+              {pendingCounteroffers.map((counteroffer) => (
+                <article key={counteroffer.id}>
+                  <div className="merchant-counteroffer-prices">
+                    <span>Buyer target</span>
+                    <strong>{formatMoney(counteroffer.targetUnitPaise)}</strong>
+                    <i aria-hidden="true">→</i>
+                    <span>Safe proposal</span>
+                    <strong>
+                      {counteroffer.proposedOption
+                        ? formatMoney(counteroffer.proposedOption.unitTotalPaise)
+                        : 'Unavailable'}
+                    </strong>
+                  </div>
+                  <blockquote>{counteroffer.buyerMessage}</blockquote>
+                  <p>{counteroffer.decisionSummary}</p>
+                  <div className="merchant-counteroffer-checks">
+                    {counteroffer.checks.map((check) => (
+                      <span className={check.passed ? 'passed' : 'failed'} key={check.code}>
+                        {check.passed ? '✓' : '!'} {check.code.replaceAll('_', ' ').toLowerCase()}
+                      </span>
+                    ))}
+                  </div>
+                  <ApproveCounterofferButton
+                    dealId={deal.id}
+                    counterofferId={counteroffer.id}
+                  />
+                </article>
+              ))}
+            </section>
+          ) : null}
+
           <div className="quote-results-heading">
             <div>
               <p className="micro-label">Deterministic quote engine</p>
