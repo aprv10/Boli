@@ -81,6 +81,9 @@ function negotiatedOption(
 ): QuoteOption {
   const option = decision.proposedOption!;
   const label = decision.targetMet ? 'Target matched' : 'Boli safe floor';
+  const checksByCode = new Map(
+    [...option.checks, ...decision.checks].map((check) => [check.code, check]),
+  );
   return {
     ...option,
     label,
@@ -89,7 +92,7 @@ function negotiatedOption(
         ? 'Issued inside the merchant’s automatic negotiation authority.'
         : 'Issued after explicit merchant approval.'
     }`,
-    checks: [...option.checks, ...decision.checks],
+    checks: [...checksByCode.values()],
   };
 }
 

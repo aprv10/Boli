@@ -21,6 +21,10 @@ function formatMoney(paise: number) {
   }).format(paise / 100);
 }
 
+function optionCountLabel(count: number) {
+  return ['No', 'One', 'Two', 'Three'][count] ?? String(count);
+}
+
 export async function generateMetadata({ params }: DealPageProps): Promise<Metadata> {
   const { dealId } = await params;
   return {
@@ -61,7 +65,14 @@ export default async function MerchantDealPage({ params }: DealPageProps) {
       <section className="quote-layout">
         <aside className="quote-brief">
           <p className="eyebrow"><span aria-hidden="true">✦</span> Deal {deal.id.slice(0, 8)}</p>
-          <h1>One brief.<br /><em>Three safe shapes.</em></h1>
+          <h1>
+            One brief.<br />
+            <em>
+              {result.status === 'generated'
+                ? `${optionCountLabel(result.options.length)} safe ${result.options.length === 1 ? 'shape' : 'shapes'}.`
+                : 'No safe shape.'}
+            </em>
+          </h1>
           <blockquote>{deal.rawText}</blockquote>
 
           <dl className="brief-facts">

@@ -354,9 +354,11 @@ export default function Home() {
               <span className="button-arrow" aria-hidden="true">{submitting ? '···' : captured ? '✓' : '↗'}</span>
             </button>
 
-            <p className={`capture-note ${captured ? 'capture-note-visible' : ''}`} role="status">
-              Saved as BOLI / {dealReference}. <Link href="/merchant/deals">See it arrive at the merchant desk →</Link>
-            </p>
+            {captured ? (
+              <p className="capture-note capture-note-visible" role="status">
+                Saved as BOLI / {dealReference}. <Link href="/merchant/deals">See it arrive at the merchant desk →</Link>
+              </p>
+            ) : null}
             {submitError ? <p className="submit-error" role="alert">{submitError}</p> : null}
           </div>
 

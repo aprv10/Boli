@@ -5,6 +5,7 @@ import { env } from 'cloudflare:workers';
 import { ensureDatabase } from '@/src/adapters/db/database';
 import { loadDealCounteroffers } from '@/src/application/counteroffer-workflow';
 import { loadPublicDealRoom } from '@/src/application/quote-workflow';
+import type { ConstraintCheck } from '@/src/domain/quoting/types';
 import { AcceptQuoteButton } from './accept-quote-button';
 import { CounterofferPanel } from './counteroffer-panel';
 
@@ -31,6 +32,82 @@ function statusLabel(status: string) {
   return status.replaceAll('_', ' ');
 }
 
+const checkLabels: Record<string, string> = {
+  BUYER_UNIT_BUDGET: 'Inside buyer budget',
+  BUYER_TARGET_PRICE: 'Buyer target respected',
+  BUYER_ORIGINAL_CAP: 'Original mandate respected',
+  MERCHANT_MARGIN_FLOOR: 'Merchant margin protected',
+  AUTOMATIC_CONCESSION_LIMIT: 'Inside automatic authority',
+  INVENTORY_AVAILABLE: 'Inventory available',
+  LEAD_TIME_FEASIBLE: 'Delivery timeline feasible',
+  HARD_CONSTRAINTS_PRESERVED: 'Locked requirements preserved',
+};
+
+function requirementNumber(value: string) {
+  const match = value.match(/^(?:<=|>=)(\d+)$/);
+  return match ? Number(match[1]) : null;
+}
+
+function presentCheck(check: ConstraintCheck) {
+  const label =
+    checkLabels[check.code] ??
+    (check.code.startsWith('HARD_CONSTRAINT_')
+      ? `${check.required.replace('-', ' ')} requirement locked`
+      : check.code.replaceAll('_', ' ').toLowerCase());
+  const threshold = requirementNumber(check.required);
+
+  if (
+    ['BUYER_UNIT_BUDGET', 'BUYER_TARGET_PRICE', 'BUYER_ORIGINAL_CAP'].includes(
+      check.code,
+    )
+  ) {
+    return {
+      label,
+      value: formatMoney(Number(check.observed)),
+      requirement:
+        threshold === null ? check.required : `limit ${formatMoney(threshold)}`,
+    };
+  }
+  if (
+    ['MERCHANT_MARGIN_FLOOR', 'AUTOMATIC_CONCESSION_LIMIT'].includes(
+      check.code,
+    )
+  ) {
+    return {
+      label,
+      value: `${(Number(check.observed) / 100).toFixed(1)}%`,
+      requirement:
+        threshold === null
+          ? check.required
+          : check.code === 'MERCHANT_MARGIN_FLOOR'
+            ? `minimum ${(threshold / 100).toFixed(1)}%`
+            : `authority ${(threshold / 100).toFixed(1)}%`,
+    };
+  }
+  if (check.code === 'INVENTORY_AVAILABLE') {
+    return {
+      label,
+      value: `${check.observed} units ready`,
+      requirement: threshold === null ? check.required : `${threshold} needed`,
+    };
+  }
+  if (check.code === 'LEAD_TIME_FEASIBLE') {
+    return {
+      label,
+      value: `${check.observed} lead time`,
+      requirement: `within ${check.required.replace('<=', '')}`,
+    };
+  }
+  if (check.code === 'HARD_CONSTRAINTS_PRESERVED') {
+    return {
+      label,
+      value: check.observed.replaceAll(',', ' · ').replaceAll('-', ' '),
+      requirement: 'unchanged',
+    };
+  }
+  return { label, value: check.observed, requirement: check.required };
+}
+
 export async function generateMetadata({ params }: DealRoomPageProps): Promise<Metadata> {
   const { publicToken } = await params;
   return {
@@ -53,6 +130,41 @@ export default async function DealRoomPage({ params }: DealRoomPageProps) {
     ? Date.parse(quote.expiresAt) <= Date.parse(room.evaluatedAt)
     : false;
   const accepted = quote?.status === 'buyer_accepted';
+  const previousQuote = quote
+    ? room.quoteHistory.find((item) => item.version === quote.version - 1)
+    : undefined;
+  const currentProducts = quote?.lines.filter((line) => line.kind === 'product') ?? [];
+  const previousProducts =
+    previousQuote?.lines.filter((line) => line.kind === 'product') ?? [];
+  const changedLineCodes = new Set(
+    quote?.lines
+      .filter((line) => {
+        if (line.kind === 'product') {
+          const position = currentProducts.findIndex((item) => item.code === line.code);
+          return previousProducts[position]?.code !== line.code;
+        }
+        const previousLine = previousQuote?.lines.find((item) => item.code === line.code);
+        return previousLine?.unitPricePaise !== line.unitPricePaise;
+      })
+      .map((line) => line.code) ?? [],
+  );
+  const changedProductCount = currentProducts.filter((line) =>
+    changedLineCodes.has(line.code),
+  ).length;
+  const perKitSavings = previousQuote && quote
+    ? previousQuote.unitTotalPaise - quote.unitTotalPaise
+    : 0;
+  const uniquePolicyChecks = quote
+    ? [...new Map(quote.checks.map((check) => [check.code, check])).values()]
+    : [];
+  const hasPreservedConstraintCheck = uniquePolicyChecks.some(
+    (check) => check.code === 'HARD_CONSTRAINTS_PRESERVED',
+  );
+  const policyChecks = hasPreservedConstraintCheck
+    ? uniquePolicyChecks.filter(
+        (check) => !check.code.startsWith('HARD_CONSTRAINT_'),
+      )
+    : uniquePolicyChecks;
 
   return (
     <main className="deal-room-shell">
@@ -61,7 +173,12 @@ export default async function DealRoomPage({ params }: DealRoomPageProps) {
           <span className="wordmark-stamp" aria-hidden="true">B</span>
           <span>Boli</span>
         </Link>
-        <p>Buyer Deal Room · The Good Batch</p>
+        <div className="deal-room-progress" aria-label="Deal progress">
+          <span className="complete">01 Mandate</span>
+          <span className="complete">02 Quote</span>
+          <span className={accepted ? 'complete' : 'active'}>03 Accept</span>
+          <span>04 Pay</span>
+        </div>
         <Link href="/">← Buyer desk</Link>
       </header>
 
@@ -102,15 +219,93 @@ export default async function DealRoomPage({ params }: DealRoomPageProps) {
 
             <p className="executable-rationale">{quote.rationale}</p>
 
-            <div className="executable-lines">
-              {quote.lines.map((line) => (
-                <div key={line.code}>
-                  <span>{line.kind}</span>
+            <section className="deal-decision-deck" aria-label="Quote decision">
+              <div>
+                <span>{accepted ? 'Decision recorded' : 'Ready for your decision'}</span>
+                <strong>{formatMoney(quote.orderTotalPaise)} exact total</strong>
+                <p>
+                  {accepted
+                    ? `Acceptance is bound to quote v${quote.version} and its fingerprint.`
+                    : 'Accept this exact version, or ask Boli to find a different policy-safe shape.'}
+                </p>
+              </div>
+              <div className="deal-decision-actions">
+                {!accepted && !isExpired ? <a href="#negotiate">Negotiate</a> : null}
+                {isExpired && !accepted ? (
+                  <div className="deal-room-expired">
+                    <strong>Acceptance blocked</strong>
+                    This quote expired. The merchant must issue a new version.
+                  </div>
+                ) : (
+                  <AcceptQuoteButton
+                    publicToken={publicToken}
+                    disabled={isExpired}
+                    accepted={accepted}
+                  />
+                )}
+              </div>
+            </section>
+
+            {previousQuote && perKitSavings > 0 ? (
+              <section className="quote-delta" aria-label="What changed in this quote">
+                <div className="quote-delta-version">
+                  <span>v{previousQuote.version}</span>
+                  <i aria-hidden="true">→</i>
+                  <strong>v{quote.version}</strong>
+                </div>
+                <div>
+                  <span>Price movement</span>
+                  <strong>{formatMoney(perKitSavings)} less / kit</strong>
+                  <small>{formatMoney(perKitSavings * quote.quantity)} saved on this order</small>
+                </div>
+                <div>
+                  <span>Composition</span>
+                  <strong>{changedProductCount} {changedProductCount === 1 ? 'item' : 'items'} changed</strong>
+                  <small>Services recalculated from the new kit</small>
+                </div>
+                <div>
+                  <span>Buyer mandate</span>
+                  <strong>Every lock preserved</strong>
+                  <small>{room.deal.hardConstraints.length} non-negotiable requirements</small>
+                </div>
+              </section>
+            ) : null}
+
+            <div className="quote-detail-heading">
+              <div><span>Kit composition</span><h3>Inside every kit</h3></div>
+              <small>{currentProducts.length} products · {quote.lines.length - currentProducts.length} services</small>
+            </div>
+
+            <div className="executable-lines executable-product-lines">
+              {currentProducts.map((line) => (
+                <div className={changedLineCodes.has(line.code) ? 'line-changed' : ''} key={line.code}>
+                  <span>{changedLineCodes.has(line.code) ? `Changed in v${quote.version}` : 'Product'}</span>
                   <p>{line.label}</p>
                   <strong>{formatMoney(line.unitPricePaise)}</strong>
                 </div>
               ))}
             </div>
+
+            <details className="service-costs">
+              <summary>
+                <span>Services & operational costs</span>
+                <strong>
+                  {formatMoney(
+                    quote.lines
+                      .filter((line) => line.kind === 'service')
+                      .reduce((total, line) => total + line.unitPricePaise, 0),
+                  )} / kit
+                </strong>
+              </summary>
+              <div>
+                {quote.lines.filter((line) => line.kind === 'service').map((line) => (
+                  <p key={line.code}>
+                    <span>{line.label}</span>
+                    <strong>{formatMoney(line.unitPricePaise)}</strong>
+                  </p>
+                ))}
+              </div>
+            </details>
 
             <dl className="executable-totals">
               <div><dt>Quantity</dt><dd>{quote.quantity}</dd></div>
@@ -137,18 +332,6 @@ export default async function DealRoomPage({ params }: DealRoomPageProps) {
               />
             ) : null}
 
-            {isExpired && !accepted ? (
-              <div className="deal-room-expired">
-                <strong>Acceptance blocked</strong>
-                This quote expired. The merchant must regenerate and approve a new version.
-              </div>
-            ) : (
-              <AcceptQuoteButton
-                publicToken={publicToken}
-                disabled={isExpired}
-                accepted={accepted}
-              />
-            )}
           </article>
 
           <aside className="deal-room-proof">
@@ -156,12 +339,19 @@ export default async function DealRoomPage({ params }: DealRoomPageProps) {
               <p className="micro-label">Policy receipt</p>
               <h2>Why this is safe</h2>
               <div className="deal-room-checks">
-                {quote.checks.map((check) => (
+                {policyChecks.map((check) => {
+                  const presented = presentCheck(check);
+                  return (
                   <div key={check.code}>
                     <span aria-hidden="true">✓</span>
-                    <p><strong>{check.code.replaceAll('_', ' ').toLowerCase()}</strong>{check.observed} · required {check.required}</p>
+                    <p>
+                      <strong>{presented.label}</strong>
+                      {presented.value}
+                      <small>{presented.requirement}</small>
+                    </p>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </section>
 

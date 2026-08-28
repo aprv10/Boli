@@ -93,7 +93,7 @@ export function CounterofferPanel({
   }
 
   return (
-    <section className="counteroffer-console" aria-labelledby="counteroffer-title">
+    <section className="counteroffer-console" id="negotiate" aria-labelledby="counteroffer-title">
       <div className="counteroffer-console-heading">
         <div>
           <span>Bounded negotiation</span>
