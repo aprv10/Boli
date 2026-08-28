@@ -26,6 +26,17 @@ const CREATE_STATEMENTS = [
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_products_merchant_sku ON products(merchant_id, sku)`,
   `CREATE INDEX IF NOT EXISTS idx_products_merchant_active ON products(merchant_id, active)`,
+  `CREATE TABLE IF NOT EXISTS merchant_policy_versions (
+    id TEXT PRIMARY KEY NOT NULL,
+    merchant_id TEXT NOT NULL REFERENCES merchants(id),
+    version INTEGER NOT NULL CHECK (version > 0),
+    minimum_margin_bps INTEGER NOT NULL CHECK (minimum_margin_bps BETWEEN 0 AND 10000),
+    maximum_automatic_concession_bps INTEGER NOT NULL CHECK (maximum_automatic_concession_bps BETWEEN 0 AND 10000),
+    status TEXT NOT NULL CHECK (status IN ('active', 'retired')),
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_merchant_policy_version ON merchant_policy_versions(merchant_id, version)`,
+  `CREATE INDEX IF NOT EXISTS idx_merchant_policy_active ON merchant_policy_versions(merchant_id, status)`,
   `CREATE TABLE IF NOT EXISTS purchase_intents (
     id TEXT PRIMARY KEY NOT NULL,
     merchant_id TEXT NOT NULL REFERENCES merchants(id),
@@ -91,6 +102,7 @@ const CREATE_STATEMENTS = [
     order_total_paise INTEGER NOT NULL CHECK (order_total_paise > 0),
     unit_cost_paise INTEGER NOT NULL CHECK (unit_cost_paise >= 0),
     contribution_margin_bps INTEGER NOT NULL CHECK (contribution_margin_bps BETWEEN 0 AND 10000),
+    policy_version INTEGER NOT NULL DEFAULT 1 CHECK (policy_version > 0),
     intent_hash TEXT NOT NULL,
     quote_hash TEXT NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('merchant_approved', 'buyer_accepted', 'superseded', 'expired')),
@@ -129,6 +141,8 @@ const CREATE_STATEMENTS = [
     actor_type TEXT NOT NULL CHECK (actor_type IN ('buyer', 'merchant', 'system')),
     summary TEXT NOT NULL,
     data_json TEXT NOT NULL,
+    previous_hash TEXT NOT NULL DEFAULT '',
+    event_hash TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_quote_events_deal_sequence ON quote_events(deal_id, sequence)`,
@@ -153,6 +167,16 @@ export async function ensureDatabase(binding: D1Database) {
 async function initialize(binding: D1Database) {
   await binding.batch(CREATE_STATEMENTS.map((statement) => binding.prepare(statement)));
 
+  await ensureColumn(binding, 'quotes', 'policy_version',
+    'ALTER TABLE quotes ADD COLUMN policy_version INTEGER NOT NULL DEFAULT 1');
+  await ensureColumn(binding, 'quote_events', 'previous_hash',
+    "ALTER TABLE quote_events ADD COLUMN previous_hash TEXT NOT NULL DEFAULT ''");
+  await ensureColumn(binding, 'quote_events', 'event_hash',
+    "ALTER TABLE quote_events ADD COLUMN event_hash TEXT NOT NULL DEFAULT ''");
+  await binding
+    .prepare('CREATE INDEX IF NOT EXISTS idx_quote_events_event_hash ON quote_events(event_hash)')
+    .run();
+
   const createdAt = '2026-08-25T00:00:00.000Z';
   const seedStatements = [
     binding
@@ -161,6 +185,14 @@ async function initialize(binding: D1Database) {
          VALUES (?, ?, ?, 'active', ?)`,
       )
       .bind(DEMO_MERCHANT.id, DEMO_MERCHANT.name, DEMO_MERCHANT.slug, createdAt),
+    binding
+      .prepare(
+        `INSERT OR IGNORE INTO merchant_policy_versions (
+          id, merchant_id, version, minimum_margin_bps,
+          maximum_automatic_concession_bps, status, created_at
+        ) VALUES ('policy-good-batch-v1', ?, 1, 2200, 1200, 'active', ?)`,
+      )
+      .bind(DEMO_MERCHANT.id, createdAt),
     ...SEED_PRODUCTS.map((product) =>
       binding
         .prepare(
@@ -187,4 +219,16 @@ async function initialize(binding: D1Database) {
 
   await binding.batch(seedStatements);
   await binding.prepare('PRAGMA optimize').run();
+}
+
+async function ensureColumn(
+  binding: D1Database,
+  table: string,
+  column: string,
+  statement: string,
+) {
+  const result = await binding.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>();
+  if (!result.results.some((item) => item.name === column)) {
+    await binding.prepare(statement).run();
+  }
 }

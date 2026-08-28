@@ -2,10 +2,10 @@ import { desc, eq } from 'drizzle-orm';
 import { counteroffers } from '@/db/schema';
 import { getDatabase } from '@/src/adapters/db/database';
 import {
-  DEFAULT_NEGOTIATION_POLICY,
   evaluateBoundedCounteroffer,
   type CounterofferDecision,
 } from '@/src/domain/negotiation/bounded-counteroffer';
+import { evaluateCommerceAction } from '@/src/domain/policies/commerce-policy';
 import { createQuoteFingerprints } from '@/src/domain/quoting/executable-quote';
 import { generateCorporateGiftingQuotes } from '@/src/domain/quoting/corporate-gifting-engine';
 import type { ConstraintCheck, QuoteOption } from '@/src/domain/quoting/types';
@@ -15,6 +15,7 @@ import {
   QuoteWorkflowError,
   type StoredQuote,
 } from './quote-workflow';
+import { prepareAuditBatch } from './audit-ledger';
 
 const QUOTE_LIFETIME_MS = 48 * 60 * 60 * 1_000;
 
@@ -112,12 +113,14 @@ async function prepareQuoteVersion(
     deliveryLocations: room.deal.deliveryLocations,
     deadline: room.deal.deadline,
     hardConstraints: room.deal.hardConstraints,
+    policyVersion: room.policy.version,
     option,
     expiresAt,
   });
   return {
     id: crypto.randomUUID(),
     version,
+    policyVersion: room.policy.version,
     expiresAt,
     ...fingerprints,
   };
@@ -136,9 +139,9 @@ function quoteInsert(
       `INSERT INTO quotes (
         id, deal_id, version, option_key, label, rationale, lines_json,
         checks_json, quantity, unit_total_paise, order_total_paise,
-        unit_cost_paise, contribution_margin_bps, intent_hash, quote_hash,
+        unit_cost_paise, contribution_margin_bps, policy_version, intent_hash, quote_hash,
         status, expires_at, created_at, approved_at, accepted_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         'merchant_approved', ?, ?, ?, NULL)`,
     )
     .bind(
@@ -155,6 +158,7 @@ function quoteInsert(
       option.orderTotalPaise,
       option.unitCostPaise,
       option.contributionMarginBps,
+      quote.policyVersion,
       quote.intentHash,
       quote.quoteHash,
       quote.expiresAt,
@@ -203,7 +207,7 @@ export async function submitBoundedCounteroffer(
     deliveryLocations: room.deal.deliveryLocations,
     deadline: room.deal.deadline,
     hardConstraints: room.deal.hardConstraints,
-    minimumMarginBps: DEFAULT_NEGOTIATION_POLICY.minimumMarginBps,
+    minimumMarginBps: room.policy.minimumMarginBps,
     now,
   });
   const decision = evaluateBoundedCounteroffer({
@@ -213,20 +217,101 @@ export async function submitBoundedCounteroffer(
     hardConstraints: room.deal.hardConstraints,
     targetResult,
     baselineResult: room.result,
+    policy: room.policy,
   });
+  const policyDecision = decision.proposedOption
+    ? evaluateCommerceAction({
+        action: 'auto_issue_counteroffer',
+        policy: room.policy,
+        now,
+        buyerMaxUnitPaise: room.deal.maxUnitPaise,
+        concessionBps: decision.concessionBps,
+        quote: {
+          status: 'candidate',
+          unitTotalPaise: decision.proposedOption.unitTotalPaise,
+          contributionMarginBps: decision.proposedOption.contributionMarginBps,
+          checks: decision.proposedOption.checks,
+        },
+      })
+    : null;
+  const effectiveStatus = !policyDecision
+    ? decision.status
+    : policyDecision.allowed
+      ? decision.status
+      : policyDecision.approvalRequired
+        ? 'merchant_approval_required'
+        : 'rejected';
+  const combinedChecks = new Map(
+    [...decision.checks, ...(policyDecision?.checks ?? [])].map((check) => [check.code, check]),
+  );
+  const finalDecision: CounterofferDecision = {
+    ...decision,
+    status: effectiveStatus,
+    checks: [...combinedChecks.values()],
+    reasonCodes: [...new Set([...decision.reasonCodes, ...(policyDecision?.reasonCodes ?? [])])],
+  };
   const counterofferId = crypto.randomUUID();
-  const nextSequence = (room.events[0]?.sequence ?? 0) + 1;
   const automaticallyIssued =
-    decision.status === 'auto_approved' ||
-    decision.status === 'bounded_counteroffer';
+    finalDecision.status === 'auto_approved' ||
+    finalDecision.status === 'bounded_counteroffer';
   const option = automaticallyIssued
-    ? negotiatedOption(decision, 'automatic')
-    : decision.proposedOption;
+    ? negotiatedOption(finalDecision, 'automatic')
+    : finalDecision.proposedOption;
   const preparedQuote = automaticallyIssued && option
     ? await prepareQuoteVersion(room, option, now)
     : null;
   const decidedAt =
-    decision.status === 'merchant_approval_required' ? null : now;
+    finalDecision.status === 'merchant_approval_required' ? null : now;
+
+  const auditDrafts = [
+    {
+      id: crypto.randomUUID(),
+      quoteId: null,
+      eventType: 'counteroffer_submitted',
+      actorType: 'buyer' as const,
+      summary: `Buyer requested ${Math.round(input.targetUnitPaise / 100)} INR per kit against quote v${sourceQuote.version}.`,
+      data: {
+        counterofferId,
+        sourceQuoteHash: sourceQuote.quoteHash,
+        targetUnitPaise: input.targetUnitPaise,
+      },
+      createdAt: now,
+    },
+    {
+      id: crypto.randomUUID(),
+      quoteId: null,
+      eventType: 'counteroffer_evaluated',
+      actorType: 'system' as const,
+      summary: finalDecision.summary,
+      data: {
+        counterofferId,
+        status: finalDecision.status,
+        checks: finalDecision.checks,
+        reasonCodes: finalDecision.reasonCodes,
+        proposedUnitPaise: finalDecision.proposedUnitPaise,
+        policyVersion: room.policy.version,
+      },
+      createdAt: now,
+    },
+    ...(preparedQuote
+      ? [{
+          id: crypto.randomUUID(),
+          quoteId: preparedQuote.id,
+          eventType: 'quote_approved',
+          actorType: 'system' as const,
+          summary: `Boli issued negotiated quote v${preparedQuote.version} inside automatic authority.`,
+          data: {
+            counterofferId,
+            quoteHash: preparedQuote.quoteHash,
+            policyVersion: room.policy.version,
+            checks: policyDecision?.checks ?? [],
+            reasonCodes: policyDecision?.reasonCodes ?? [],
+          },
+          createdAt: now,
+        }]
+      : []),
+  ];
+  const audit = await prepareAuditBatch(binding, room.deal.id, auditDrafts);
 
   const statements: D1PreparedStatement[] = [
     binding
@@ -245,53 +330,13 @@ export async function submitBoundedCounteroffer(
         input.sourceKind ?? 'structured',
         input.buyerMessage,
         input.targetUnitPaise,
-        decision.status,
+        finalDecision.status,
         option ? JSON.stringify(option) : null,
-        JSON.stringify(decision.checks),
-        JSON.stringify(decision.reasonCodes),
-        decision.summary,
+        JSON.stringify(finalDecision.checks),
+        JSON.stringify(finalDecision.reasonCodes),
+        finalDecision.summary,
         now,
         decidedAt,
-      ),
-    binding
-      .prepare(
-        `INSERT INTO quote_events (
-          id, deal_id, quote_id, sequence, event_type, actor_type,
-          summary, data_json, created_at
-        ) VALUES (?, ?, NULL, ?, 'counteroffer_submitted', 'buyer', ?, ?, ?)`,
-      )
-      .bind(
-        crypto.randomUUID(),
-        room.deal.id,
-        nextSequence,
-        `Buyer requested ${Math.round(input.targetUnitPaise / 100)} INR per kit against quote v${sourceQuote.version}.`,
-        JSON.stringify({
-          counterofferId,
-          sourceQuoteHash: sourceQuote.quoteHash,
-          targetUnitPaise: input.targetUnitPaise,
-        }),
-        now,
-      ),
-    binding
-      .prepare(
-        `INSERT INTO quote_events (
-          id, deal_id, quote_id, sequence, event_type, actor_type,
-          summary, data_json, created_at
-        ) VALUES (?, ?, NULL, ?, 'counteroffer_evaluated', 'system', ?, ?, ?)`,
-      )
-      .bind(
-        crypto.randomUUID(),
-        room.deal.id,
-        nextSequence + 1,
-        decision.summary,
-        JSON.stringify({
-          counterofferId,
-          status: decision.status,
-          checks: decision.checks,
-          reasonCodes: decision.reasonCodes,
-          proposedUnitPaise: decision.proposedUnitPaise,
-        }),
-        now,
       ),
   ];
 
@@ -316,29 +361,10 @@ export async function submitBoundedCounteroffer(
           `UPDATE counteroffers SET proposed_quote_id = ? WHERE id = ?`,
         )
         .bind(preparedQuote.id, counterofferId),
-      binding
-        .prepare(
-          `INSERT INTO quote_events (
-            id, deal_id, quote_id, sequence, event_type, actor_type,
-            summary, data_json, created_at
-          ) VALUES (?, ?, ?, ?, 'quote_approved', 'system', ?, ?, ?)`,
-        )
-        .bind(
-          crypto.randomUUID(),
-          room.deal.id,
-          preparedQuote.id,
-          nextSequence + 2,
-          `Boli issued negotiated quote v${preparedQuote.version} inside automatic authority.`,
-          JSON.stringify({
-            counterofferId,
-            quoteHash: preparedQuote.quoteHash,
-            policy: DEFAULT_NEGOTIATION_POLICY,
-          }),
-          now,
-        ),
     );
   }
   statements.push(
+    ...audit.statements,
     binding.prepare('UPDATE deals SET updated_at = ? WHERE id = ?').bind(now, room.deal.id),
   );
   await binding.batch(statements);
@@ -412,8 +438,48 @@ export async function approvePendingCounteroffer(
     summary: proposal.decisionSummary,
   };
   const option = negotiatedOption(decision, 'merchant');
-  const preparedQuote = await prepareQuoteVersion(room, option, now);
-  const nextSequence = (room.events[0]?.sequence ?? 0) + 1;
+  const policyDecision = evaluateCommerceAction({
+    action: 'merchant_approve_counteroffer',
+    policy: room.policy,
+    now,
+    buyerMaxUnitPaise: room.deal.maxUnitPaise,
+    quote: {
+      status: 'candidate',
+      unitTotalPaise: option.unitTotalPaise,
+      contributionMarginBps: option.contributionMarginBps,
+      checks: option.checks,
+    },
+  });
+  if (!policyDecision.allowed) {
+    throw new QuoteWorkflowError(
+      'POLICY_REJECTED',
+      `The proposed counteroffer failed policy: ${policyDecision.reasonCodes.join(', ')}.`,
+      409,
+    );
+  }
+  const approvedChecks = new Map(
+    [...option.checks, ...policyDecision.checks].map((check) => [check.code, check]),
+  );
+  const approvedOption = { ...option, checks: [...approvedChecks.values()] };
+  const preparedQuote = await prepareQuoteVersion(room, approvedOption, now);
+  const audit = await prepareAuditBatch(binding, room.deal.id, [
+    {
+      id: crypto.randomUUID(),
+      quoteId: preparedQuote.id,
+      eventType: 'counteroffer_approved',
+      actorType: 'merchant',
+      summary: `Merchant approved counteroffer and issued quote v${preparedQuote.version}.`,
+      data: {
+        counterofferId,
+        quoteHash: preparedQuote.quoteHash,
+        sourceQuoteHash: sourceQuote.quoteHash,
+        policyVersion: room.policy.version,
+        checks: policyDecision.checks,
+        reasonCodes: policyDecision.reasonCodes,
+      },
+      createdAt: now,
+    },
+  ]);
 
   await binding.batch([
     binding
@@ -426,7 +492,7 @@ export async function approvePendingCounteroffer(
       binding,
       room.deal.id,
       preparedQuote,
-      option,
+      approvedOption,
       room.deal.quantity,
       now,
     ),
@@ -437,26 +503,7 @@ export async function approvePendingCounteroffer(
          WHERE id = ? AND status = 'merchant_approval_required'`,
       )
       .bind(preparedQuote.id, now, proposal.id),
-    binding
-      .prepare(
-        `INSERT INTO quote_events (
-          id, deal_id, quote_id, sequence, event_type, actor_type,
-          summary, data_json, created_at
-        ) VALUES (?, ?, ?, ?, 'counteroffer_approved', 'merchant', ?, ?, ?)`,
-      )
-      .bind(
-        crypto.randomUUID(),
-        room.deal.id,
-        preparedQuote.id,
-        nextSequence,
-        `Merchant approved counteroffer and issued quote v${preparedQuote.version}.`,
-        JSON.stringify({
-          counterofferId,
-          quoteHash: preparedQuote.quoteHash,
-          sourceQuoteHash: sourceQuote.quoteHash,
-        }),
-        now,
-      ),
+    ...audit.statements,
     binding.prepare('UPDATE deals SET updated_at = ? WHERE id = ?').bind(now, room.deal.id),
   ]);
 

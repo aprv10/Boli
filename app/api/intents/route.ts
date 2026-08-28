@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers';
 import { z } from 'zod';
 import { DEMO_MERCHANT } from '@/src/adapters/db/seed-data';
 import { ensureDatabase } from '@/src/adapters/db/database';
+import { prepareAuditBatch } from '@/src/application/audit-ledger';
 
 const purchaseIntentInput = z.object({
   rawText: z.string().trim().min(40).max(600),
@@ -59,6 +60,24 @@ export async function POST(request: Request) {
     }
   }
 
+  const audit = await prepareAuditBatch(env.DB, dealId, [
+    {
+      id: crypto.randomUUID(),
+      quoteId: null,
+      eventType: 'request_received',
+      actorType: 'buyer',
+      summary: 'Buyer submitted a bounded purchase mandate.',
+      data: {
+        quantity: parsed.data.quantity,
+        maxUnitPaise: parsed.data.maxUnitPaise,
+        hardConstraints: parsed.data.hardConstraints,
+        deliveryLocations: parsed.data.deliveryLocations,
+        deadline: parsed.data.deadline,
+      },
+      createdAt: now,
+    },
+  ]);
+
   const statements = [
     env.DB
       .prepare(
@@ -93,24 +112,7 @@ export async function POST(request: Request) {
         ) VALUES (?, ?, ?, ?, 'intent_received', 1, ?, ?)`,
       )
       .bind(dealId, DEMO_MERCHANT.id, intentId, publicToken, now, now),
-    env.DB
-      .prepare(
-        `INSERT INTO quote_events (
-          id, deal_id, quote_id, sequence, event_type, actor_type,
-          summary, data_json, created_at
-        ) VALUES (?, ?, NULL, 1, 'request_received', 'buyer', ?, ?, ?)`,
-      )
-      .bind(
-        crypto.randomUUID(),
-        dealId,
-        'Buyer submitted a bounded purchase mandate.',
-        JSON.stringify({
-          quantity: parsed.data.quantity,
-          maxUnitPaise: parsed.data.maxUnitPaise,
-          hardConstraints: parsed.data.hardConstraints,
-        }),
-        now,
-      ),
+    ...audit.statements,
   ];
   if (parsed.data.agentRunId && parsed.data.agentReviewStatus) {
     statements.push(

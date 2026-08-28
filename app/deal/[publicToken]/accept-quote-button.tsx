@@ -5,12 +5,14 @@ import { useRouter } from 'next/navigation';
 
 type AcceptQuoteButtonProps = {
   publicToken: string;
+  quoteHash: string;
   disabled: boolean;
   accepted: boolean;
 };
 
 export function AcceptQuoteButton({
   publicToken,
+  quoteHash,
   disabled,
   accepted,
 }: AcceptQuoteButtonProps) {
@@ -24,6 +26,8 @@ export function AcceptQuoteButton({
     try {
       const response = await fetch(`/api/public/deals/${publicToken}/accept`, {
         method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ expectedQuoteHash: quoteHash }),
       });
       const result = (await response.json()) as { error?: { message?: string } };
       if (!response.ok) throw new Error(result.error?.message ?? 'The quote was not accepted.');

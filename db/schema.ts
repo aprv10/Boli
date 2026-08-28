@@ -8,6 +8,30 @@ export const merchants = sqliteTable('merchants', {
   createdAt: text('created_at').notNull(),
 });
 
+export const merchantPolicyVersions = sqliteTable(
+  'merchant_policy_versions',
+  {
+    id: text('id').primaryKey(),
+    merchantId: text('merchant_id')
+      .notNull()
+      .references(() => merchants.id),
+    version: integer('version').notNull(),
+    minimumMarginBps: integer('minimum_margin_bps').notNull(),
+    maximumAutomaticConcessionBps: integer(
+      'maximum_automatic_concession_bps',
+    ).notNull(),
+    status: text('status', { enum: ['active', 'retired'] }).notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => [
+    uniqueIndex('idx_merchant_policy_version').on(
+      table.merchantId,
+      table.version,
+    ),
+    index('idx_merchant_policy_active').on(table.merchantId, table.status),
+  ],
+);
+
 export const products = sqliteTable(
   'products',
   {
@@ -140,6 +164,7 @@ export const quotes = sqliteTable(
     orderTotalPaise: integer('order_total_paise').notNull(),
     unitCostPaise: integer('unit_cost_paise').notNull(),
     contributionMarginBps: integer('contribution_margin_bps').notNull(),
+    policyVersion: integer('policy_version').notNull().default(1),
     intentHash: text('intent_hash').notNull(),
     quoteHash: text('quote_hash').notNull(),
     status: text('status', {
@@ -210,11 +235,14 @@ export const quoteEvents = sqliteTable(
     }).notNull(),
     summary: text('summary').notNull(),
     dataJson: text('data_json').notNull(),
+    previousHash: text('previous_hash').notNull().default(''),
+    eventHash: text('event_hash').notNull().default(''),
     createdAt: text('created_at').notNull(),
   },
   (table) => [
     uniqueIndex('idx_quote_events_deal_sequence').on(table.dealId, table.sequence),
     uniqueIndex('idx_quote_events_quote_type').on(table.quoteId, table.eventType),
     index('idx_quote_events_deal_created').on(table.dealId, table.createdAt),
+    index('idx_quote_events_event_hash').on(table.eventHash),
   ],
 );

@@ -26,6 +26,7 @@ function fingerprint(option: QuoteOption, version = 1) {
     deliveryLocations: ['Bengaluru', 'Pune'],
     deadline: '2026-09-04',
     hardConstraints: ['vegan', 'plastic-free', 'branded', 'multi-city'],
+    policyVersion: 1,
     option,
     expiresAt: '2026-08-27T00:00:00.000Z',
   });

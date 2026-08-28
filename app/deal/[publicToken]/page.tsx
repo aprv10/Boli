@@ -239,6 +239,7 @@ export default async function DealRoomPage({ params }: DealRoomPageProps) {
                 ) : (
                   <AcceptQuoteButton
                     publicToken={publicToken}
+                    quoteHash={quote.quoteHash}
                     disabled={isExpired}
                     accepted={accepted}
                   />
@@ -335,6 +336,23 @@ export default async function DealRoomPage({ params }: DealRoomPageProps) {
           </article>
 
           <aside className="deal-room-proof">
+            <section className={`audit-integrity ${room.auditVerified ? 'verified' : 'unverified'}`}>
+              <div className="audit-integrity-heading">
+                <p className="micro-label">Cryptographic receipt</p>
+                <span>{room.auditVerified ? 'Chain verified' : 'Integrity warning'}</span>
+              </div>
+              <h2>Every decision leaves a fingerprint.</h2>
+              <p>
+                Each action commits to the one before it. Editing an amount, approval,
+                or actor would break the chain.
+              </p>
+              <dl>
+                <div><dt>Policy</dt><dd>v{quote.policyVersion}</dd></div>
+                <div><dt>Events sealed</dt><dd>{room.events.length}</dd></div>
+                <div><dt>Ledger head</dt><dd><code>{room.auditHeadHash.slice(0, 18)}…</code></dd></div>
+              </dl>
+            </section>
+
             <section>
               <p className="micro-label">Policy receipt</p>
               <h2>Why this is safe</h2>
@@ -364,6 +382,7 @@ export default async function DealRoomPage({ params }: DealRoomPageProps) {
                   <div>
                     <p>{event.summary}</p>
                     <small>{event.actorType} · {formatMoment(event.createdAt)}</small>
+                    <code className="event-fingerprint">{event.eventHash.slice(0, 12)}…</code>
                   </div>
                 </article>
               ))}

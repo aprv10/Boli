@@ -1,4 +1,5 @@
 import { env } from 'cloudflare:workers';
+import { z } from 'zod';
 import { ensureDatabase } from '@/src/adapters/db/database';
 import {
   acceptCurrentQuote,
@@ -7,11 +8,26 @@ import {
 
 type RouteContext = { params: Promise<{ publicToken: string }> };
 
-export async function POST(_request: Request, { params }: RouteContext) {
+const inputSchema = z.object({
+  expectedQuoteHash: z.string().regex(/^[a-f0-9]{64}$/),
+});
+
+export async function POST(request: Request, { params }: RouteContext) {
   await ensureDatabase(env.DB);
+  const parsed = inputSchema.safeParse(await request.json());
+  if (!parsed.success) {
+    return Response.json(
+      { error: { code: 'VALIDATION_FAILED', message: 'A valid quote fingerprint is required.' } },
+      { status: 400 },
+    );
+  }
   try {
     const { publicToken } = await params;
-    const result = await acceptCurrentQuote(env.DB, publicToken);
+    const result = await acceptCurrentQuote(
+      env.DB,
+      publicToken,
+      parsed.data.expectedQuoteHash,
+    );
     return Response.json({
       quote: {
         id: result.quote.id,

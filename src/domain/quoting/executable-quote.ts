@@ -9,6 +9,7 @@ type FingerprintInput = {
   deliveryLocations: string[];
   deadline: string;
   hardConstraints: HardConstraint[];
+  policyVersion: number;
   option: QuoteOption;
   expiresAt: string;
 };
@@ -54,6 +55,7 @@ export async function createQuoteFingerprints(input: FingerprintInput) {
     dealId: input.dealId,
     intentHash,
     version: input.version,
+    policyVersion: input.policyVersion,
     optionKey: input.option.key,
     quantity: input.quantity,
     currency: 'INR',

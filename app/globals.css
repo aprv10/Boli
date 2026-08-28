@@ -313,6 +313,21 @@ button:focus-visible, a:focus-visible, textarea:focus-visible { outline: 3px sol
 .deal-room-proof > section + section { padding-top: 34px; }
 .deal-room-proof .micro-label { color: var(--acid); }
 .deal-room-proof h2 { margin: 8px 0 20px; font-family: Georgia, "Times New Roman", serif; font-size: 2rem; font-weight: 500; letter-spacing: -0.04em; }
+.audit-integrity { position: relative; overflow: hidden; }
+.audit-integrity::after { content: ""; position: absolute; right: -64px; top: -84px; width: 180px; height: 180px; border: 1px solid rgba(217, 255, 104, 0.18); border-radius: 50%; box-shadow: 0 0 0 24px rgba(217, 255, 104, 0.025), 0 0 0 52px rgba(217, 255, 104, 0.018); pointer-events: none; }
+.audit-integrity-heading { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.audit-integrity-heading > span { display: inline-flex; align-items: center; gap: 7px; padding: 7px 10px; border: 1px solid rgba(217, 255, 104, 0.28); border-radius: 999px; color: var(--acid); background: rgba(217, 255, 104, 0.07); font-size: 0.72rem; font-weight: 850; letter-spacing: 0.03em; }
+.audit-integrity-heading > span::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--acid); box-shadow: 0 0 14px var(--acid); }
+.audit-integrity.unverified .audit-integrity-heading > span { border-color: rgba(255, 126, 102, 0.35); color: #ff9d89; background: rgba(255, 126, 102, 0.08); }
+.audit-integrity.unverified .audit-integrity-heading > span::before { background: #ff7e66; box-shadow: 0 0 14px #ff7e66; }
+.audit-integrity > h2 { position: relative; z-index: 1; max-width: 380px; margin-bottom: 12px; }
+.audit-integrity > p { position: relative; z-index: 1; max-width: 420px; margin: 0; color: rgba(255, 255, 255, 0.62); font-size: 0.82rem; line-height: 1.6; }
+.audit-integrity dl { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 22px 0 0; }
+.audit-integrity dl > div { padding: 12px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(255, 255, 255, 0.035); }
+.audit-integrity dl > div:last-child { grid-column: 1 / -1; }
+.audit-integrity dt { color: rgba(255, 255, 255, 0.46); font-size: 0.68rem; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; }
+.audit-integrity dd { margin: 5px 0 0; color: white; font-size: 0.86rem; font-weight: 800; }
+.audit-integrity code { color: var(--acid); font-size: 0.78rem; }
 .deal-room-checks { display: grid; gap: 12px; }
 .deal-room-checks > div { display: flex; gap: 10px; }
 .deal-room-checks > div > span { color: var(--acid); font-weight: 900; }
@@ -323,6 +338,7 @@ button:focus-visible, a:focus-visible, textarea:focus-visible { outline: 3px sol
 .deal-room-timeline article > span { color: var(--acid); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.75rem; font-weight: 900; }
 .deal-room-timeline article p { margin: 0; font-size: 0.78rem; line-height: 1.45; }
 .deal-room-timeline article small { display: block; margin-top: 5px; color: rgba(255, 255, 255, 0.46); font-size: 0.72rem; text-transform: capitalize; }
+.deal-room-timeline .event-fingerprint { display: block; margin-top: 7px; color: rgba(217, 255, 104, 0.58); font-size: 0.68rem; }
 .quote-version-history > div { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; padding: 14px 0; border-top: 1px solid rgba(255, 255, 255, 0.12); }
 .quote-version-history strong { font-size: 0.78rem; }
 .quote-version-history span { color: var(--acid); font-size: 0.72rem; font-weight: 800; text-transform: capitalize; }

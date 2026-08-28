@@ -6,12 +6,14 @@ import {
   products,
   purchaseIntents,
   purchaseRequirements,
-  quoteEvents,
   quotes,
 } from '@/db/schema';
 import { getDatabase } from '@/src/adapters/db/database';
+import { loadAuditLedgerNewestFirst, prepareAuditBatch } from './audit-ledger';
+import { loadActiveMerchantPolicy } from './policy-gate';
 import { createQuoteFingerprints } from '@/src/domain/quoting/executable-quote';
 import { generateCorporateGiftingQuotes } from '@/src/domain/quoting/corporate-gifting-engine';
+import { evaluateCommerceAction, type MerchantPolicy } from '@/src/domain/policies/commerce-policy';
 import type {
   CatalogProduct,
   ConstraintCheck,
@@ -56,6 +58,7 @@ export type DealQuoteWorkspace = {
       latencyMs: number;
     };
   };
+  policy: MerchantPolicy;
   catalog: CatalogProduct[];
   result: QuoteEngineResult;
 };
@@ -74,6 +77,7 @@ export type StoredQuote = {
   orderTotalPaise: number;
   unitCostPaise: number;
   contributionMarginBps: number;
+  policyVersion: number;
   intentHash: string;
   quoteHash: string;
   status: 'merchant_approved' | 'buyer_accepted' | 'superseded' | 'expired';
@@ -91,8 +95,45 @@ export type StoredQuoteEvent = {
   actorType: 'buyer' | 'merchant' | 'system';
   summary: string;
   data: Record<string, unknown>;
+  previousHash: string;
+  eventHash: string;
   createdAt: string;
 };
+
+function conditionalQuoteAuditInsert(
+  binding: D1Database,
+  event: StoredQuoteEvent & { quoteId: string },
+  requiredStatus: StoredQuote['status'],
+  acceptedAt?: string,
+) {
+  const acceptedPredicate = acceptedAt ? ' AND accepted_at = ?' : '';
+  const values = [
+    event.id,
+    event.dealId,
+    event.quoteId,
+    event.sequence,
+    event.eventType,
+    event.actorType,
+    event.summary,
+    JSON.stringify(event.data),
+    event.previousHash,
+    event.eventHash,
+    event.createdAt,
+    event.quoteId,
+    requiredStatus,
+    ...(acceptedAt ? [acceptedAt] : []),
+  ];
+  return binding
+    .prepare(
+      `INSERT OR IGNORE INTO quote_events (
+        id, deal_id, quote_id, sequence, event_type, actor_type,
+        summary, data_json, previous_hash, event_hash, created_at
+      )
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      FROM quotes WHERE id = ? AND status = ?${acceptedPredicate}`,
+    )
+    .bind(...values);
+}
 
 function parseQuote(row: typeof quotes.$inferSelect): StoredQuote {
   return {
@@ -109,6 +150,7 @@ function parseQuote(row: typeof quotes.$inferSelect): StoredQuote {
     orderTotalPaise: row.orderTotalPaise,
     unitCostPaise: row.unitCostPaise,
     contributionMarginBps: row.contributionMarginBps,
+    policyVersion: row.policyVersion,
     intentHash: row.intentHash,
     quoteHash: row.quoteHash,
     status: row.status,
@@ -176,6 +218,7 @@ export async function loadDealQuoteWorkspace(
   }));
   const hardConstraints = JSON.parse(record.constraintsJson) as HardConstraint[];
   const deliveryLocations = JSON.parse(record.deliveryLocationsJson) as string[];
+  const policy = await loadActiveMerchantPolicy(binding, record.merchantId);
 
   return {
     deal: {
@@ -201,6 +244,7 @@ export async function loadDealQuoteWorkspace(
             }
           : null,
     },
+    policy,
     catalog,
     result: generateCorporateGiftingQuotes(catalog, {
       quantity: record.quantity,
@@ -208,6 +252,7 @@ export async function loadDealQuoteWorkspace(
       deliveryLocations,
       deadline: record.deadline,
       hardConstraints,
+      minimumMarginBps: policy.minimumMarginBps,
       now,
     }),
   };
@@ -224,22 +269,8 @@ export async function loadDealQuotes(binding: D1Database, dealId: string) {
 }
 
 export async function loadDealEvents(binding: D1Database, dealId: string) {
-  const db = getDatabase(binding);
-  const rows = await db
-    .select()
-    .from(quoteEvents)
-    .where(eq(quoteEvents.dealId, dealId))
-    .orderBy(desc(quoteEvents.sequence));
-  return rows.map<StoredQuoteEvent>((row) => ({
-    id: row.id,
-    quoteId: row.quoteId,
-    sequence: row.sequence,
-    eventType: row.eventType,
-    actorType: row.actorType,
-    summary: row.summary,
-    data: JSON.parse(row.dataJson) as Record<string, unknown>,
-    createdAt: row.createdAt,
-  }));
+  const ledger = await loadAuditLedgerNewestFirst(binding, dealId);
+  return ledger.events as StoredQuoteEvent[];
 }
 
 export async function approveQuoteOption(
@@ -264,6 +295,29 @@ export async function approveQuoteOption(
   if (!option) {
     throw new QuoteWorkflowError('OPTION_NOT_FOUND', 'That quote option is unavailable.', 404);
   }
+  const policyDecision = evaluateCommerceAction({
+    action: 'approve_quote',
+    policy: workspace.policy,
+    now,
+    buyerMaxUnitPaise: workspace.deal.maxUnitPaise,
+    quote: {
+      status: 'candidate',
+      unitTotalPaise: option.unitTotalPaise,
+      contributionMarginBps: option.contributionMarginBps,
+      checks: option.checks,
+    },
+  });
+  if (!policyDecision.allowed) {
+    throw new QuoteWorkflowError(
+      'POLICY_REJECTED',
+      `The quote failed policy: ${policyDecision.reasonCodes.join(', ')}.`,
+      409,
+    );
+  }
+  const checksByCode = new Map(
+    [...option.checks, ...policyDecision.checks].map((check) => [check.code, check]),
+  );
+  const approvedOption = { ...option, checks: [...checksByCode.values()] };
 
   const history = await loadDealQuotes(binding, dealId);
   const accepted = history.find((quote) => quote.status === 'buyer_accepted');
@@ -279,6 +333,7 @@ export async function approveQuoteOption(
     if (
       quote.status !== 'merchant_approved' ||
       quote.optionKey !== optionKey ||
+      quote.policyVersion !== workspace.policy.version ||
       Date.parse(quote.expiresAt) <= Date.parse(now)
     ) {
       continue;
@@ -292,7 +347,8 @@ export async function approveQuoteOption(
       deliveryLocations: workspace.deal.deliveryLocations,
       deadline: workspace.deal.deadline,
       hardConstraints: workspace.deal.hardConstraints,
-      option,
+      policyVersion: quote.policyVersion,
+      option: approvedOption,
       expiresAt: quote.expiresAt,
     });
     if (
@@ -318,15 +374,30 @@ export async function approveQuoteOption(
     deliveryLocations: workspace.deal.deliveryLocations,
     deadline: workspace.deal.deadline,
     hardConstraints: workspace.deal.hardConstraints,
-    option,
+    policyVersion: workspace.policy.version,
+    option: approvedOption,
     expiresAt,
   });
   const quoteId = crypto.randomUUID();
-  const nextSequence =
-    (await binding
-      .prepare('SELECT COALESCE(MAX(sequence), 0) AS value FROM quote_events WHERE deal_id = ?')
-      .bind(dealId)
-      .first<{ value: number }>())!.value + 1;
+  const audit = await prepareAuditBatch(binding, dealId, [
+    {
+      id: crypto.randomUUID(),
+      quoteId,
+      eventType: 'quote_approved',
+      actorType: 'merchant',
+      summary: `Merchant approved quote v${version} · ${approvedOption.label}.`,
+      data: {
+        quoteHash,
+        version,
+        optionKey,
+        orderTotalPaise: approvedOption.orderTotalPaise,
+        policyVersion: workspace.policy.version,
+        checks: policyDecision.checks,
+        reasonCodes: policyDecision.reasonCodes,
+      },
+      createdAt: now,
+    },
+  ]);
 
   await binding.batch([
     binding
@@ -340,9 +411,9 @@ export async function approveQuoteOption(
         `INSERT INTO quotes (
           id, deal_id, version, option_key, label, rationale, lines_json,
           checks_json, quantity, unit_total_paise, order_total_paise,
-          unit_cost_paise, contribution_margin_bps, intent_hash, quote_hash,
+          unit_cost_paise, contribution_margin_bps, policy_version, intent_hash, quote_hash,
           status, expires_at, created_at, approved_at, accepted_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
           'merchant_approved', ?, ?, ?, NULL)`,
       )
       .bind(
@@ -350,15 +421,16 @@ export async function approveQuoteOption(
         dealId,
         version,
         option.key,
-        option.label,
-        option.rationale,
-        JSON.stringify(option.lines),
-        JSON.stringify(option.checks),
+        approvedOption.label,
+        approvedOption.rationale,
+        JSON.stringify(approvedOption.lines),
+        JSON.stringify(approvedOption.checks),
         workspace.deal.quantity,
-        option.unitTotalPaise,
-        option.orderTotalPaise,
-        option.unitCostPaise,
-        option.contributionMarginBps,
+        approvedOption.unitTotalPaise,
+        approvedOption.orderTotalPaise,
+        approvedOption.unitCostPaise,
+        approvedOption.contributionMarginBps,
+        workspace.policy.version,
         intentHash,
         quoteHash,
         expiresAt,
@@ -366,22 +438,7 @@ export async function approveQuoteOption(
         now,
       ),
     binding.prepare('UPDATE deals SET updated_at = ? WHERE id = ?').bind(now, dealId),
-    binding
-      .prepare(
-        `INSERT INTO quote_events (
-          id, deal_id, quote_id, sequence, event_type, actor_type,
-          summary, data_json, created_at
-        ) VALUES (?, ?, ?, ?, 'quote_approved', 'merchant', ?, ?, ?)`,
-      )
-      .bind(
-        crypto.randomUUID(),
-        dealId,
-        quoteId,
-        nextSequence,
-        `Merchant approved quote v${version} · ${option.label}.`,
-        JSON.stringify({ quoteHash, version, optionKey, orderTotalPaise: option.orderTotalPaise }),
-        now,
-      ),
+    ...audit.statements,
   ]);
 
   return {
@@ -404,14 +461,16 @@ export async function loadPublicDealRoom(binding: D1Database, publicToken: strin
   const workspace = await loadDealQuoteWorkspace(binding, deal.id, evaluatedAt);
   if (!workspace) return undefined;
   const quoteHistory = await loadDealQuotes(binding, deal.id);
-  const events = await loadDealEvents(binding, deal.id);
+  const auditLedger = await loadAuditLedgerNewestFirst(binding, deal.id);
   return {
     ...workspace,
     quoteHistory,
     currentQuote: quoteHistory.find(
       (quote) => quote.status === 'buyer_accepted' || quote.status === 'merchant_approved',
     ),
-    events,
+    events: auditLedger.events as StoredQuoteEvent[],
+    auditVerified: auditLedger.verified,
+    auditHeadHash: auditLedger.headHash,
     evaluatedAt,
   };
 }
@@ -419,6 +478,7 @@ export async function loadPublicDealRoom(binding: D1Database, publicToken: strin
 export async function acceptCurrentQuote(
   binding: D1Database,
   publicToken: string,
+  expectedQuoteHash: string,
   now = new Date().toISOString(),
 ) {
   const room = await loadPublicDealRoom(binding, publicToken);
@@ -433,12 +493,34 @@ export async function acceptCurrentQuote(
       409,
     );
   }
+  if (quote.quoteHash !== expectedQuoteHash) {
+    throw new QuoteWorkflowError(
+      'QUOTE_CHANGED',
+      'The executable quote changed before acceptance. Refresh and review the new version.',
+      409,
+    );
+  }
   if (quote.status === 'buyer_accepted') {
     return { quote, alreadyAccepted: true };
   }
 
-  const nextSequence = (room.events[0]?.sequence ?? 0) + 1;
   if (Date.parse(quote.expiresAt) <= Date.parse(now)) {
+    const audit = await prepareAuditBatch(binding, room.deal.id, [
+      {
+        id: crypto.randomUUID(),
+        quoteId: quote.id,
+        eventType: 'quote_expired',
+        actorType: 'system',
+        summary: `Quote v${quote.version} expired before acceptance.`,
+        data: {
+          quoteHash: quote.quoteHash,
+          expiresAt: quote.expiresAt,
+          policyVersion: quote.policyVersion,
+          reasonCodes: ['QUOTE_NOT_EXPIRED_FAILED'],
+        },
+        createdAt: now,
+      },
+    ]);
     await binding.batch([
       binding
         .prepare(
@@ -446,22 +528,11 @@ export async function acceptCurrentQuote(
            WHERE id = ? AND status = 'merchant_approved'`,
         )
         .bind(quote.id),
-      binding
-        .prepare(
-          `INSERT OR IGNORE INTO quote_events (
-            id, deal_id, quote_id, sequence, event_type, actor_type,
-            summary, data_json, created_at
-          ) VALUES (?, ?, ?, ?, 'quote_expired', 'system', ?, ?, ?)`,
-        )
-        .bind(
-          crypto.randomUUID(),
-          room.deal.id,
-          quote.id,
-          nextSequence,
-          `Quote v${quote.version} expired before acceptance.`,
-          JSON.stringify({ quoteHash: quote.quoteHash, expiresAt: quote.expiresAt }),
-          now,
-        ),
+      conditionalQuoteAuditInsert(
+        binding,
+        audit.events[0] as StoredQuoteEvent & { quoteId: string },
+        'expired',
+      ),
     ]);
     throw new QuoteWorkflowError(
       'QUOTE_EXPIRED',
@@ -470,6 +541,46 @@ export async function acceptCurrentQuote(
     );
   }
 
+  const policyDecision = evaluateCommerceAction({
+    action: 'accept_quote',
+    policy: room.policy,
+    now,
+    buyerMaxUnitPaise: room.deal.maxUnitPaise,
+    expectedQuoteHash,
+    quote: {
+      status: quote.status,
+      unitTotalPaise: quote.unitTotalPaise,
+      contributionMarginBps: quote.contributionMarginBps,
+      expiresAt: quote.expiresAt,
+      quoteHash: quote.quoteHash,
+      checks: quote.checks,
+    },
+  });
+  if (!policyDecision.allowed) {
+    throw new QuoteWorkflowError(
+      'POLICY_REJECTED',
+      `The quote is no longer acceptable: ${policyDecision.reasonCodes.join(', ')}.`,
+      409,
+    );
+  }
+  const audit = await prepareAuditBatch(binding, room.deal.id, [
+    {
+      id: crypto.randomUUID(),
+      quoteId: quote.id,
+      eventType: 'quote_accepted',
+      actorType: 'buyer',
+      summary: `Buyer accepted quote v${quote.version} exactly as approved.`,
+      data: {
+        quoteHash: quote.quoteHash,
+        orderTotalPaise: quote.orderTotalPaise,
+        policyVersion: quote.policyVersion,
+        checks: policyDecision.checks,
+        reasonCodes: policyDecision.reasonCodes,
+      },
+      createdAt: now,
+    },
+  ]);
+
   const results = await binding.batch([
     binding
       .prepare(
@@ -477,25 +588,12 @@ export async function acceptCurrentQuote(
          WHERE id = ? AND status = 'merchant_approved' AND expires_at > ?`,
       )
       .bind(now, quote.id, now),
-    binding
-      .prepare(
-        `INSERT OR IGNORE INTO quote_events (
-          id, deal_id, quote_id, sequence, event_type, actor_type,
-          summary, data_json, created_at
-        )
-        SELECT ?, ?, id, ?, 'quote_accepted', 'buyer', ?, ?, ?
-        FROM quotes WHERE id = ? AND status = 'buyer_accepted' AND accepted_at = ?`,
-      )
-      .bind(
-        crypto.randomUUID(),
-        room.deal.id,
-        nextSequence,
-        `Buyer accepted quote v${quote.version} exactly as approved.`,
-        JSON.stringify({ quoteHash: quote.quoteHash, orderTotalPaise: quote.orderTotalPaise }),
-        now,
-        quote.id,
-        now,
-      ),
+    conditionalQuoteAuditInsert(
+      binding,
+      audit.events[0] as StoredQuoteEvent & { quoteId: string },
+      'buyer_accepted',
+      now,
+    ),
     binding.prepare('UPDATE deals SET updated_at = ? WHERE id = ?').bind(now, room.deal.id),
   ]);
 
