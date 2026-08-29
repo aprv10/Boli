@@ -1,8 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { z } from 'zod';
-import { DEMO_MERCHANT } from '@/src/adapters/db/seed-data';
 import { ensureDatabase } from '@/src/adapters/db/database';
-import { prepareAuditBatch } from '@/src/application/audit-ledger';
+import { submitPurchaseIntent } from '@/src/application/intent-workflow';
 
 const purchaseIntentInput = z.object({
   rawText: z.string().trim().min(40).max(600),
@@ -37,17 +36,11 @@ export async function POST(request: Request) {
     );
   }
 
-  const intentId = crypto.randomUUID();
-  const dealId = crypto.randomUUID();
-  const publicToken = `${crypto.randomUUID()}${crypto.randomUUID()}`.replaceAll('-', '');
-  const now = new Date().toISOString();
-
-  if (parsed.data.agentRunId) {
-    const run = await env.DB
-      .prepare("SELECT id FROM agent_runs WHERE id = ? AND status = 'succeeded'")
-      .bind(parsed.data.agentRunId)
-      .first<{ id: string }>();
-    if (!run) {
+  let deal;
+  try {
+    deal = await submitPurchaseIntent(env.DB, parsed.data);
+  } catch (error) {
+    if (error instanceof Error && error.message === 'INVALID_AGENT_TRACE') {
       return Response.json(
         {
           error: {
@@ -58,87 +51,16 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
+    throw error;
   }
-
-  const audit = await prepareAuditBatch(env.DB, dealId, [
-    {
-      id: crypto.randomUUID(),
-      quoteId: null,
-      eventType: 'request_received',
-      actorType: 'buyer',
-      summary: 'Buyer submitted a bounded purchase mandate.',
-      data: {
-        quantity: parsed.data.quantity,
-        maxUnitPaise: parsed.data.maxUnitPaise,
-        hardConstraints: parsed.data.hardConstraints,
-        deliveryLocations: parsed.data.deliveryLocations,
-        deadline: parsed.data.deadline,
-      },
-      createdAt: now,
-    },
-  ]);
-
-  const statements = [
-    env.DB
-      .prepare(
-        `INSERT INTO purchase_intents (
-          id, merchant_id, raw_text, constraints_json, status, created_at
-        ) VALUES (?, ?, ?, ?, 'received', ?)`,
-      )
-      .bind(
-        intentId,
-        DEMO_MERCHANT.id,
-        parsed.data.rawText,
-        JSON.stringify(parsed.data.hardConstraints),
-        now,
-      ),
-    env.DB
-      .prepare(
-        `INSERT INTO purchase_requirements (
-          intent_id, quantity, max_unit_paise, delivery_locations_json, deadline
-        ) VALUES (?, ?, ?, ?, ?)`,
-      )
-      .bind(
-        intentId,
-        parsed.data.quantity,
-        parsed.data.maxUnitPaise,
-        JSON.stringify(parsed.data.deliveryLocations),
-        parsed.data.deadline,
-      ),
-    env.DB
-      .prepare(
-        `INSERT INTO deals (
-          id, merchant_id, intent_id, public_token, state, version, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, 'intent_received', 1, ?, ?)`,
-      )
-      .bind(dealId, DEMO_MERCHANT.id, intentId, publicToken, now, now),
-    ...audit.statements,
-  ];
-  if (parsed.data.agentRunId && parsed.data.agentReviewStatus) {
-    statements.push(
-      env.DB
-        .prepare(
-          `INSERT INTO intent_agent_runs (
-            intent_id, agent_run_id, review_status, created_at
-          ) VALUES (?, ?, ?, ?)`,
-        )
-        .bind(
-          intentId,
-          parsed.data.agentRunId,
-          parsed.data.agentReviewStatus,
-          now,
-        ),
-    );
-  }
-  await env.DB.batch(statements);
 
   return Response.json(
     {
       deal: {
-        id: dealId,
-        publicToken,
-        state: 'intent_received',
-        createdAt: now,
+        id: deal.id,
+        publicToken: deal.publicToken,
+        state: deal.state,
+        createdAt: deal.createdAt,
         interpretation: parsed.data.agentRunId
           ? {
               runId: parsed.data.agentRunId,

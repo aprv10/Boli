@@ -479,8 +479,13 @@ export async function acceptCurrentQuote(
   binding: D1Database,
   publicToken: string,
   expectedQuoteHash: string,
-  now = new Date().toISOString(),
+  context: {
+    now?: string;
+    channel?: 'human_buyer' | 'ai_buyer';
+  } = {},
 ) {
+  const now = context.now ?? new Date().toISOString();
+  const channel = context.channel ?? 'human_buyer';
   const room = await loadPublicDealRoom(binding, publicToken);
   if (!room) {
     throw new QuoteWorkflowError('DEAL_NOT_FOUND', 'This Deal Room does not exist.', 404);
@@ -574,6 +579,7 @@ export async function acceptCurrentQuote(
         quoteHash: quote.quoteHash,
         orderTotalPaise: quote.orderTotalPaise,
         policyVersion: quote.policyVersion,
+        channel,
         checks: policyDecision.checks,
         reasonCodes: policyDecision.reasonCodes,
       },

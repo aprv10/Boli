@@ -209,6 +209,7 @@ export default function Home() {
 
         <nav className="topnav" aria-label="Primary navigation">
           <a className="nav-link nav-link-active" href="#request">Buyer desk</a>
+          <Link className="nav-link" href="/agent">AI buyer</Link>
           <a className="nav-link" href="#merchant-preview">Merchant gate</a>
         </nav>
 

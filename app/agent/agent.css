@@ -1,0 +1,101 @@
+/* AI buyer — an inspectable tool-running surface, not a chat skin. */
+.agent-surface { min-height: 100vh; overflow: hidden; background: var(--ink); color: white; }
+.agent-header { position: relative; z-index: 5; display: grid; grid-template-columns: 1fr auto 1fr; min-height: 76px; align-items: center; padding: 0 3.5vw; border-bottom: 1px solid rgba(255, 255, 255, 0.14); background: rgba(23, 35, 29, 0.86); backdrop-filter: blur(18px); }
+.agent-wordmark { color: white; }
+.agent-header nav { display: flex; gap: 6px; padding: 5px; border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 999px; }
+.agent-header nav a, .agent-header nav span { padding: 8px 13px; border-radius: 999px; color: rgba(255, 255, 255, 0.55); font-size: 0.76rem; font-weight: 780; text-decoration: none; }
+.agent-header nav span { background: var(--acid); color: var(--ink); }
+.agent-header > a:last-child { justify-self: end; color: var(--acid); font-size: 0.74rem; font-weight: 780; text-decoration: none; }
+.agent-intro { position: relative; display: grid; grid-template-columns: 1.5fr 0.7fr; gap: 30px; padding: 7vh 5vw 6vh; overflow: hidden; border-bottom: 1px solid rgba(255, 255, 255, 0.14); background: radial-gradient(circle at 75% 25%, rgba(52, 87, 241, 0.48), transparent 24rem), linear-gradient(120deg, rgba(217, 255, 104, 0.06), transparent 45%); }
+.agent-intro::before { position: absolute; inset: 0; background-image: linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px); background-size: 34px 34px; content: ""; mask-image: linear-gradient(to right, black, transparent); pointer-events: none; }
+.agent-intro > p { position: relative; grid-column: 1 / -1; margin: 0; color: var(--acid); font-size: 0.76rem; font-weight: 850; letter-spacing: 0.08em; text-transform: uppercase; }
+.agent-intro h1 { position: relative; max-width: 900px; margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: clamp(3.6rem, 7.7vw, 8.8rem); font-weight: 500; letter-spacing: -0.075em; line-height: 0.82; }
+.agent-intro h1 em { color: var(--acid); font-weight: inherit; }
+.agent-intro > div { position: relative; display: grid; align-content: end; grid-template-columns: auto 1fr; gap: 17px 12px; padding-bottom: 5px; }
+.agent-intro > div strong { color: var(--acid); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.76rem; }
+.agent-intro > div span { color: rgba(255, 255, 255, 0.64); font-size: 0.78rem; font-weight: 700; line-height: 1.45; }
+.agent-workbench { display: grid; grid-template-columns: minmax(400px, 0.85fr) minmax(540px, 1.15fr); min-height: 720px; }
+.agent-command-card { padding: clamp(28px, 4vw, 62px); background: var(--paper); color: var(--ink); }
+.agent-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.agent-card-heading span { color: var(--cobalt); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.75rem; font-weight: 850; }
+.agent-card-heading h2 { margin: 7px 0 0; font-family: Georgia, "Times New Roman", serif; font-size: clamp(2.2rem, 4vw, 4.8rem); font-weight: 500; letter-spacing: -0.06em; line-height: 0.95; }
+.agent-card-heading b { padding: 8px 10px; border: 1px solid var(--ink); background: var(--acid); font-size: 0.74rem; text-transform: uppercase; transform: rotate(2deg); }
+.agent-command-card > label { display: block; margin: 38px 0 10px; color: var(--ink-soft); font-size: 0.75rem; font-weight: 800; }
+.agent-command-card > textarea { width: 100%; min-height: 170px; resize: vertical; padding: 20px; border: 1px solid var(--ink); background: rgba(255, 255, 255, 0.72); color: var(--ink); font-family: Georgia, "Times New Roman", serif; font-size: 1.18rem; line-height: 1.55; box-shadow: 7px 7px 0 rgba(23, 35, 29, 0.1); }
+.agent-command-card > textarea:focus { outline: 3px solid var(--cobalt); outline-offset: 3px; }
+.agent-command-card > textarea:disabled { color: var(--ink-soft); }
+.agent-read-actions { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-top: 15px; }
+.agent-read-actions button, .agent-mandate-receipt > button, .agent-human-gate button { cursor: pointer; padding: 14px 16px; border: 1px solid var(--ink); background: var(--ink); color: white; font-size: 0.78rem; font-weight: 850; }
+.agent-read-actions button:last-child { background: transparent; color: var(--ink); }
+.agent-read-actions button:disabled, .agent-mandate-receipt > button:disabled, .agent-human-gate button:disabled { cursor: wait; opacity: 0.48; }
+.agent-mandate-receipt { margin-top: 22px; border: 1px solid var(--ink); background: white; box-shadow: 7px 7px 0 var(--cobalt); animation: surface-in 360ms ease both; }
+.agent-mandate-receipt header { display: grid; gap: 5px; padding: 17px 19px; border-bottom: 1px solid var(--ink); background: #edf0ff; }
+.agent-mandate-receipt header span { color: var(--cobalt); font-size: 0.74rem; font-weight: 900; text-transform: uppercase; }
+.agent-mandate-receipt header strong { font-family: Georgia, "Times New Roman", serif; font-size: 1.25rem; }
+.agent-mandate-receipt header small { color: var(--ink-soft); font-size: 0.74rem; }
+.agent-mandate-receipt dl { display: grid; grid-template-columns: 1fr 1fr; margin: 0; }
+.agent-mandate-receipt dl > div { padding: 13px 18px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.agent-mandate-receipt dt { color: var(--ink-soft); font-size: 0.72rem; font-weight: 750; }
+.agent-mandate-receipt dd { margin: 4px 0 0; font-size: 0.8rem; font-weight: 850; }
+.agent-constraint-row { display: flex; flex-wrap: wrap; gap: 7px; padding: 15px 18px; }
+.agent-constraint-row span { padding: 6px 8px; border-radius: 999px; background: var(--ink); color: var(--acid); font-size: 0.72rem; font-weight: 750; text-transform: capitalize; }
+.agent-mandate-receipt > button { width: calc(100% - 36px); margin: 0 18px 18px; background: var(--cobalt); }
+.agent-console-error { padding: 13px 15px; border-left: 3px solid var(--coral); background: #ffe4dc; color: #922e1d; font-size: 0.78rem; font-weight: 750; line-height: 1.5; }
+.agent-execution-rail { position: relative; padding: clamp(28px, 4vw, 62px); overflow: hidden; background: #111a16; }
+.agent-execution-rail::before { position: absolute; inset: 0; background: radial-gradient(circle at 90% 0%, rgba(217, 255, 104, 0.12), transparent 21rem); content: ""; pointer-events: none; }
+.agent-execution-rail > header { position: relative; display: flex; justify-content: space-between; gap: 20px; padding-bottom: 18px; border-bottom: 1px solid rgba(255, 255, 255, 0.15); color: rgba(255, 255, 255, 0.58); font-size: 0.74rem; font-weight: 850; letter-spacing: 0.08em; }
+.agent-live-dot { display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: var(--acid); box-shadow: 0 0 14px var(--acid); animation: agent-pulse 1.8s ease-in-out infinite; }
+.agent-execution-rail > header code { color: var(--acid); }
+.agent-empty-run { position: relative; display: grid; min-height: 480px; align-content: center; justify-items: center; text-align: center; }
+.agent-empty-run > span { color: var(--acid); font-size: 2rem; }
+.agent-empty-run h2 { margin: 12px 0 8px; font-family: Georgia, "Times New Roman", serif; font-size: 2rem; font-weight: 500; }
+.agent-empty-run p { max-width: 430px; margin: 0; color: rgba(255, 255, 255, 0.5); font-size: 0.82rem; line-height: 1.65; }
+.agent-step-list { position: relative; }
+.agent-step { display: grid; grid-template-columns: 34px 1fr auto; gap: 15px; padding: 20px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.12); animation: surface-in 350ms ease both; }
+.agent-step > span { color: rgba(255, 255, 255, 0.36); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.74rem; }
+.agent-step code { color: var(--acid); font-size: 0.72rem; }
+.agent-step h3 { margin: 6px 0 5px; font-size: 0.88rem; }
+.agent-step p { max-width: 590px; margin: 0; color: rgba(255, 255, 255, 0.54); font-size: 0.78rem; line-height: 1.55; }
+.agent-step > b { align-self: start; padding: 5px 7px; border: 1px solid rgba(217, 255, 104, 0.28); color: var(--acid); font-size: 0.68rem; text-transform: uppercase; }
+.agent-step-waiting > b { border-color: rgba(255, 107, 74, 0.44); color: #ff9a80; }
+.agent-step-blocked > b { border-color: rgba(255, 255, 255, 0.24); color: rgba(255, 255, 255, 0.5); }
+.agent-human-gate { position: relative; margin-top: 26px; padding: 22px; border: 1px solid var(--acid); background: rgba(217, 255, 104, 0.08); box-shadow: 7px 7px 0 rgba(217, 255, 104, 0.18); }
+.agent-human-gate > span { color: var(--acid); font-size: 0.73rem; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; }
+.agent-human-gate h2 { margin: 8px 0; font-family: Georgia, "Times New Roman", serif; font-size: 2rem; font-weight: 500; }
+.agent-human-gate p { margin: 0; color: rgba(255, 255, 255, 0.62); font-size: 0.8rem; line-height: 1.55; }
+.agent-human-gate p strong { color: white; }
+.agent-human-gate > div { display: grid; grid-template-columns: auto 1fr; gap: 9px; margin-top: 18px; }
+.agent-human-gate a { display: grid; place-items: center; padding: 13px 15px; border: 1px solid rgba(255, 255, 255, 0.38); color: white; font-size: 0.76rem; font-weight: 850; text-decoration: none; }
+.agent-human-gate button { border-color: var(--acid); background: var(--acid); color: var(--ink); }
+.agent-accepted-receipt { position: relative; margin-top: 28px; padding: 23px; border: 1px solid var(--acid); background: var(--acid); color: var(--ink); box-shadow: 8px 8px 0 var(--cobalt); }
+.agent-accepted-receipt > div:first-child { display: flex; align-items: center; gap: 12px; }
+.agent-accepted-receipt > div:first-child > span { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 50%; background: var(--ink); color: var(--acid); font-weight: 900; }
+.agent-accepted-receipt p { margin: 0; font-size: 0.78rem; }
+.agent-accepted-receipt p strong { display: block; font-family: Georgia, "Times New Roman", serif; font-size: 1.25rem; }
+.agent-accepted-receipt dl { display: grid; grid-template-columns: repeat(3, 1fr); margin: 22px 0 15px; border: 1px solid var(--ink); }
+.agent-accepted-receipt dl > div { padding: 12px; border-right: 1px solid var(--ink); }
+.agent-accepted-receipt dt { font-size: 0.7rem; font-weight: 750; }
+.agent-accepted-receipt dd { margin: 4px 0 0; font-size: 0.88rem; font-weight: 900; }
+.agent-accepted-receipt > code { display: block; overflow: hidden; font-size: 0.72rem; text-overflow: ellipsis; }
+.agent-accepted-receipt .agent-audit-result { display: flex; justify-content: space-between; gap: 12px; margin-top: 15px; padding-top: 14px; border-top: 1px solid rgba(23, 35, 29, 0.25); font-weight: 850; }
+.agent-accepted-receipt > a { display: inline-block; margin-top: 15px; color: var(--ink); font-size: 0.78rem; font-weight: 900; }
+@keyframes agent-pulse { 50% { opacity: 0.45; transform: scale(0.75); } }
+@media (max-width: 1120px) {
+  .agent-workbench { grid-template-columns: 1fr; }
+}
+@media (max-width: 800px) {
+  .agent-header { grid-template-columns: 1fr auto; padding: 0 20px; }
+  .agent-header nav { display: none; }
+  .agent-header > a:last-child { font-size: 0; }
+  .agent-header > a:last-child::after { content: "Manifest ↗"; font-size: 0.74rem; }
+  .agent-intro { display: block; padding: 58px 22px 50px; }
+  .agent-intro h1 { margin-top: 22px; font-size: clamp(3.2rem, 15vw, 5rem); }
+  .agent-intro > div { margin-top: 38px; }
+  .agent-command-card, .agent-execution-rail { padding: 42px 20px 58px; }
+  .agent-read-actions, .agent-human-gate > div { grid-template-columns: 1fr; }
+  .agent-mandate-receipt dl { grid-template-columns: 1fr; }
+  .agent-step { grid-template-columns: 28px 1fr; }
+  .agent-step > b { grid-column: 2; width: fit-content; }
+  .agent-accepted-receipt dl { grid-template-columns: 1fr; }
+  .agent-accepted-receipt dl > div { border-right: 0; border-bottom: 1px solid var(--ink); }
+}
