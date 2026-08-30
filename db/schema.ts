@@ -1,4 +1,5 @@
-import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { sql } from 'drizzle-orm';
+import { check, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const merchants = sqliteTable('merchants', {
   id: text('id').primaryKey(),
@@ -274,6 +275,13 @@ export const paymentActions = sqliteTable(
   (table) => [
     uniqueIndex('idx_payment_actions_idempotency').on(table.idempotencyKey),
     index('idx_payment_actions_deal_type').on(table.dealId, table.actionType),
+    check('payment_actions_amount_positive', sql`${table.amountPaise} > 0`),
+    check('payment_actions_type_valid', sql`${table.actionType} IN ('create_order', 'refund')`),
+    check(
+      'payment_actions_status_valid',
+      sql`${table.status} IN ('pending', 'succeeded', 'failed', 'reconciliation_required')`,
+    ),
+    check('payment_actions_provider_valid', sql`${table.provider} IN ('razorpay', 'demo')`),
   ],
 );
 
@@ -309,6 +317,14 @@ export const razorpayOrders = sqliteTable(
     uniqueIndex('idx_razorpay_orders_provider_id').on(table.providerOrderId),
     uniqueIndex('idx_razorpay_orders_quote').on(table.quoteId),
     index('idx_razorpay_orders_deal_status').on(table.dealId, table.status),
+    check('razorpay_orders_policy_version_positive', sql`${table.policyVersion} > 0`),
+    check('razorpay_orders_amount_positive', sql`${table.amountPaise} > 0`),
+    check('razorpay_orders_currency_inr', sql`${table.currency} = 'INR'`),
+    check('razorpay_orders_provider_valid', sql`${table.provider} IN ('razorpay', 'demo')`),
+    check(
+      'razorpay_orders_status_valid',
+      sql`${table.status} IN ('created', 'paid', 'refund_pending', 'refunded')`,
+    ),
   ],
 );
 
@@ -327,6 +343,7 @@ export const checkoutCallbacks = sqliteTable(
   (table) => [
     uniqueIndex('idx_checkout_callbacks_payment').on(table.providerPaymentId),
     index('idx_checkout_callbacks_order').on(table.orderId),
+    check('checkout_callbacks_signature_boolean', sql`${table.signatureVerified} IN (0, 1)`),
   ],
 );
 
@@ -349,6 +366,12 @@ export const razorpayPayments = sqliteTable(
   (table) => [
     uniqueIndex('idx_razorpay_payments_provider_id').on(table.providerPaymentId),
     index('idx_razorpay_payments_order').on(table.orderId),
+    check('razorpay_payments_amount_positive', sql`${table.amountPaise} > 0`),
+    check('razorpay_payments_currency_inr', sql`${table.currency} = 'INR'`),
+    check(
+      'razorpay_payments_status_valid',
+      sql`${table.status} IN ('captured', 'partially_refunded', 'refunded')`,
+    ),
   ],
 );
 
@@ -364,7 +387,11 @@ export const webhookInbox = sqliteTable(
     receivedAt: text('received_at').notNull(),
     processedAt: text('processed_at'),
   },
-  (table) => [index('idx_webhook_inbox_status_received').on(table.status, table.receivedAt)],
+  (table) => [
+    index('idx_webhook_inbox_status_received').on(table.status, table.receivedAt),
+    check('webhook_inbox_signature_boolean', sql`${table.signatureVerified} IN (0, 1)`),
+    check('webhook_inbox_status_valid', sql`${table.status} IN ('received', 'processed', 'rejected')`),
+  ],
 );
 
 export const refunds = sqliteTable(
@@ -390,6 +417,11 @@ export const refunds = sqliteTable(
     uniqueIndex('idx_refunds_action').on(table.paymentActionId),
     uniqueIndex('idx_refunds_provider_id').on(table.providerRefundId),
     index('idx_refunds_payment_status').on(table.paymentId, table.status),
+    check('refunds_amount_positive', sql`${table.amountPaise} > 0`),
+    check(
+      'refunds_status_valid',
+      sql`${table.status} IN ('pending', 'processed', 'failed', 'reconciliation_required')`,
+    ),
   ],
 );
 
@@ -417,6 +449,11 @@ export const inventoryReservations = sqliteTable(
       table.productId,
     ),
     index('idx_inventory_reservations_status_expiry').on(table.status, table.expiresAt),
+    check('inventory_reservations_quantity_positive', sql`${table.quantity} > 0`),
+    check(
+      'inventory_reservations_status_valid',
+      sql`${table.status} IN ('reserved', 'consumed', 'released', 'lost')`,
+    ),
   ],
 );
 
@@ -448,5 +485,9 @@ export const fulfilmentIncidents = sqliteTable(
   (table) => [
     uniqueIndex('idx_fulfilment_incidents_deal').on(table.dealId),
     index('idx_fulfilment_incidents_status').on(table.status),
+    check(
+      'fulfilment_incidents_status_valid',
+      sql`${table.status} IN ('replacement_offered', 'buyer_declined', 'refund_pending', 'refunded')`,
+    ),
   ],
 );

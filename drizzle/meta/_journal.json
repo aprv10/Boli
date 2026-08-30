@@ -57,6 +57,13 @@
       "when": 1788128735758,
       "tag": "0007_clumsy_gauntlet",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1788129496715,
+      "tag": "0008_organic_whirlwind",
+      "breakpoints": true
     }
   ]
 }

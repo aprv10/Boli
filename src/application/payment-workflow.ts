@@ -16,6 +16,7 @@ import { evaluateCommerceAction } from '@/src/domain/policies/commerce-policy';
 import { reconcileCapturedPayment } from '@/src/domain/payments/reconciliation';
 
 const RESERVATION_LIFETIME_MS = 30 * 60 * 1_000;
+const WEBHOOK_RETRY_LEASE_MS = 30 * 1_000;
 
 export class PaymentWorkflowError extends QuoteWorkflowError {}
 
@@ -31,6 +32,7 @@ export type DealPaymentState = {
     | 'refunded';
   order: null | {
     id: string;
+    quoteId: string;
     providerOrderId: string;
     provider: PaymentProvider;
     checkoutKeyId: string | null;
@@ -250,6 +252,55 @@ async function releaseQuoteReservations(binding: D1Database, quoteId: string) {
       .prepare("DELETE FROM inventory_reservations WHERE quote_id = ? AND status = 'reserved'")
       .bind(quoteId),
   ]);
+}
+
+async function claimWebhookEvent(
+  binding: D1Database,
+  input: { eventId: string; eventType: string; payloadHash: string; now: string },
+): Promise<{ acquired: true } | { acquired: false; status: string }> {
+  const claim = await binding
+    .prepare(
+      `INSERT OR IGNORE INTO webhook_inbox (
+        id, event_type, signature_verified, payload_hash, status, received_at
+      ) VALUES (?, ?, 1, ?, 'received', ?)`,
+    )
+    .bind(input.eventId, input.eventType, input.payloadHash, input.now)
+    .run();
+  if ((claim.meta.changes ?? 0) === 1) return { acquired: true };
+
+  const existing = await binding
+    .prepare(
+      `SELECT status, payload_hash AS payloadHash, received_at AS receivedAt
+       FROM webhook_inbox WHERE id = ?`,
+    )
+    .bind(input.eventId)
+    .first<{ status: string; payloadHash: string; receivedAt: string }>();
+  if (!existing) return { acquired: false, status: 'received' };
+  if (existing.payloadHash !== input.payloadHash) {
+    throw new PaymentWorkflowError(
+      'WEBHOOK_EVENT_CONFLICT',
+      'This webhook event ID was already used for a different payload.',
+      409,
+    );
+  }
+  if (existing.status !== 'received') {
+    return { acquired: false, status: existing.status };
+  }
+
+  const leaseAge = Date.parse(input.now) - Date.parse(existing.receivedAt);
+  if (Number.isFinite(leaseAge) && leaseAge >= 0 && leaseAge < WEBHOOK_RETRY_LEASE_MS) {
+    return { acquired: false, status: existing.status };
+  }
+  const reacquired = await binding
+    .prepare(
+      `UPDATE webhook_inbox SET received_at = ?
+       WHERE id = ? AND status = 'received' AND received_at = ?`,
+    )
+    .bind(input.now, input.eventId, existing.receivedAt)
+    .run();
+  return (reacquired.meta.changes ?? 0) === 1
+    ? { acquired: true }
+    : { acquired: false, status: 'received' };
 }
 
 async function existingCheckout(
@@ -604,21 +655,13 @@ export async function processPaymentCapturedWebhook(
   }
   const parsed = paymentCapturedWebhookSchema.safeParse(payload);
   const payloadHash = await sha256Text(input.rawBody);
-  const claim = await binding
-    .prepare(
-      `INSERT OR IGNORE INTO webhook_inbox (
-        id, event_type, signature_verified, payload_hash, status, received_at
-      ) VALUES (?, ?, 1, ?, 'received', ?)`,
-    )
-    .bind(input.eventId, parsed.success ? parsed.data.event : 'unsupported', payloadHash, now)
-    .run();
-  if ((claim.meta.changes ?? 0) !== 1) {
-    const existing = await binding
-      .prepare('SELECT status FROM webhook_inbox WHERE id = ?')
-      .bind(input.eventId)
-      .first<{ status: string }>();
-    return { duplicate: true, status: existing?.status ?? 'received' };
-  }
+  const claim = await claimWebhookEvent(binding, {
+    eventId: input.eventId,
+    eventType: parsed.success ? parsed.data.event : 'unsupported',
+    payloadHash,
+    now,
+  });
+  if (!claim.acquired) return { duplicate: true, status: claim.status };
   if (!parsed.success) {
     await binding
       .prepare(
@@ -754,21 +797,13 @@ async function processRefundWebhook(
     throw new PaymentWorkflowError('INVALID_WEBHOOK_PAYLOAD', 'Refund webhook is malformed.', 400);
   }
   const payloadHash = await sha256Text(input.rawBody);
-  const claim = await binding
-    .prepare(
-      `INSERT OR IGNORE INTO webhook_inbox (
-        id, event_type, signature_verified, payload_hash, status, received_at
-      ) VALUES (?, ?, 1, ?, 'received', ?)`,
-    )
-    .bind(input.eventId, parsed.data.event, payloadHash, now)
-    .run();
-  if ((claim.meta.changes ?? 0) !== 1) {
-    const existing = await binding
-      .prepare('SELECT status FROM webhook_inbox WHERE id = ?')
-      .bind(input.eventId)
-      .first<{ status: string }>();
-    return { duplicate: true, status: existing?.status ?? 'received' };
-  }
+  const claim = await claimWebhookEvent(binding, {
+    eventId: input.eventId,
+    eventType: parsed.data.event,
+    payloadHash,
+    now,
+  });
+  if (!claim.acquired) return { duplicate: true, status: claim.status };
   const entity = parsed.data.payload.refund.entity;
   const row = await binding
     .prepare(
@@ -780,7 +815,8 @@ async function processRefundWebhook(
        JOIN razorpay_payments p ON p.id = r.payment_id
        JOIN razorpay_orders o ON o.id = p.order_id
        WHERE r.provider_refund_id = ?
-          OR (p.provider_payment_id = ? AND r.amount_paise = ? AND r.status = 'pending')
+          OR (p.provider_payment_id = ? AND r.amount_paise = ?
+            AND r.status IN ('pending', 'reconciliation_required'))
        ORDER BY r.created_at DESC LIMIT 1`,
     )
     .bind(entity.id, entity.payment_id, entity.amount)
@@ -800,7 +836,9 @@ async function processRefundWebhook(
     row &&
       row.providerPaymentId === entity.payment_id &&
       row.refundAmountPaise === entity.amount &&
-      entity.amount <= row.capturedAmountPaise,
+      entity.amount <= row.capturedAmountPaise &&
+      ((parsed.data.event === 'refund.processed' && entity.status === 'processed') ||
+        (parsed.data.event === 'refund.failed' && entity.status === 'failed')),
   );
   if (!row || !factsMatch) {
     await binding
@@ -851,8 +889,11 @@ async function processRefundWebhook(
       .prepare("UPDATE webhook_inbox SET status = 'processed', processed_at = ? WHERE id = ?")
       .bind(now, input.eventId),
     binding
-      .prepare('UPDATE refunds SET status = ?, updated_at = ? WHERE id = ?')
-      .bind(processed ? 'processed' : 'failed', now, row.id),
+      .prepare(
+        `UPDATE refunds SET provider_refund_id = COALESCE(provider_refund_id, ?),
+          status = ?, updated_at = ? WHERE id = ?`,
+      )
+      .bind(entity.id, processed ? 'processed' : 'failed', now, row.id),
     binding
       .prepare('UPDATE payment_actions SET status = ?, failure_code = ?, updated_at = ? WHERE id = ?')
       .bind(processed ? 'succeeded' : 'failed', processed ? null : 'REFUND_FAILED', now, row.paymentActionId),
@@ -947,17 +988,29 @@ export async function issueFullRefund(
     throw new PaymentWorkflowError('PAYMENT_NOT_CAPTURED', 'A captured payment is required.', 409);
   }
   const keyOwner = await binding
-    .prepare('SELECT deal_id AS dealId, action_type AS actionType FROM payment_actions WHERE idempotency_key = ?')
+    .prepare(
+      `SELECT id, deal_id AS dealId, action_type AS actionType, status
+       FROM payment_actions WHERE idempotency_key = ?`,
+    )
     .bind(idempotencyKey)
-    .first<{ dealId: string; actionType: string }>();
+    .first<{ id: string; dealId: string; actionType: string; status: string }>();
   if (keyOwner && (keyOwner.dealId !== dealId || keyOwner.actionType !== 'refund')) {
     throw new PaymentWorkflowError('IDEMPOTENCY_KEY_CONFLICT', 'That money-action key is already used.', 409);
   }
   if (state.refund && state.refund.status !== 'failed') return { state, reused: true };
-  if (keyOwner && !state.refund) {
+  const failedRefundForKey = keyOwner
+    ? await binding
+        .prepare(
+          `SELECT id FROM refunds
+           WHERE payment_action_id = ? AND payment_id = ? AND status = 'failed'`,
+        )
+        .bind(keyOwner.id, state.payment.id)
+        .first<{ id: string }>()
+    : undefined;
+  if (keyOwner && !failedRefundForKey) {
     throw new PaymentWorkflowError(
       'PAYMENT_RECONCILIATION_PENDING',
-      'The existing refund action has not reached a final provider state.',
+      'The existing refund action has not reached a safely retryable state.',
       202,
     );
   }
@@ -1007,15 +1060,18 @@ export async function issueFullRefund(
     );
   }
 
-  const actionId = crypto.randomUUID();
-  const refundId = crypto.randomUUID();
+  const actionId = keyOwner?.id ?? crypto.randomUUID();
+  const refundId = failedRefundForKey?.id ?? crypto.randomUUID();
+  const retryingFailedRefund = Boolean(failedRefundForKey);
   const requestedAudit = await prepareAuditBatch(binding, dealId, [
     {
       id: crypto.randomUUID(),
       quoteId: quote.id,
-      eventType: 'refund_requested',
+      eventType: retryingFailedRefund ? 'refund_retried' : 'refund_requested',
       actorType: 'buyer',
-      summary: 'Requested one policy-gated full refund after declining the recovery offer.',
+      summary: retryingFailedRefund
+        ? 'Retried the same policy-gated refund after a definitive provider rejection.'
+        : 'Requested one policy-gated full refund after declining the recovery offer.',
       data: {
         paymentActionId: actionId,
         amountPaise: state.payment.amountPaise,
@@ -1026,26 +1082,47 @@ export async function issueFullRefund(
       createdAt: now,
     },
   ]);
+  const refundRequestStatements = retryingFailedRefund
+    ? [
+        binding
+          .prepare(
+            `UPDATE payment_actions SET status = 'pending', failure_code = NULL, updated_at = ?
+             WHERE id = ? AND status = 'failed'`,
+          )
+          .bind(now, actionId),
+        binding
+          .prepare(
+            `UPDATE refunds SET status = 'pending', updated_at = ?
+             WHERE id = ? AND status = 'failed'`,
+          )
+          .bind(now, refundId),
+      ]
+    : [
+        binding
+          .prepare(
+            `INSERT INTO payment_actions (
+              id, deal_id, quote_id, idempotency_key, action_type, amount_paise,
+              status, provider, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, 'refund', ?, 'pending', ?, ?, ?)`,
+          )
+          .bind(actionId, dealId, quote.id, idempotencyKey, state.payment.amountPaise, state.order.provider, now, now),
+        binding
+          .prepare(
+            `INSERT INTO refunds (
+              id, payment_id, payment_action_id, amount_paise, reason,
+              status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
+          )
+          .bind(refundId, state.payment.id, actionId, state.payment.amountPaise, reason, now, now),
+      ];
   await binding.batch([
-    binding
-      .prepare(
-        `INSERT INTO payment_actions (
-          id, deal_id, quote_id, idempotency_key, action_type, amount_paise,
-          status, provider, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, 'refund', ?, 'pending', ?, ?, ?)`,
-      )
-      .bind(actionId, dealId, quote.id, idempotencyKey, state.payment.amountPaise, state.order.provider, now, now),
-    binding
-      .prepare(
-        `INSERT INTO refunds (
-          id, payment_id, payment_action_id, amount_paise, reason,
-          status, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
-      )
-      .bind(refundId, state.payment.id, actionId, state.payment.amountPaise, reason, now, now),
+    ...refundRequestStatements,
     binding
       .prepare("UPDATE razorpay_orders SET status = 'refund_pending', updated_at = ? WHERE id = ?")
       .bind(now, state.order.id),
+    binding
+      .prepare("UPDATE fulfilment_incidents SET status = 'refund_pending', updated_at = ? WHERE deal_id = ?")
+      .bind(now, dealId),
     ...requestedAudit.statements,
   ]);
 
@@ -1089,6 +1166,16 @@ export async function issueFullRefund(
       binding
         .prepare('UPDATE payment_actions SET status = ?, failure_code = ?, updated_at = ? WHERE id = ?')
         .bind(status, providerError?.code ?? 'PROVIDER_UNAVAILABLE', now, actionId),
+      ...(status === 'failed'
+        ? [
+            binding
+              .prepare("UPDATE razorpay_orders SET status = 'paid', updated_at = ? WHERE id = ?")
+              .bind(now, state.order.id),
+            binding
+              .prepare("UPDATE fulfilment_incidents SET status = 'buyer_declined', updated_at = ? WHERE deal_id = ?")
+              .bind(now, dealId),
+          ]
+        : []),
       ...audit.statements,
     ]);
     throw new PaymentWorkflowError(

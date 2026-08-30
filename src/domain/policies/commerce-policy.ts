@@ -28,7 +28,7 @@ type EvaluateCommerceActionInput = {
   now: string;
   buyerMaxUnitPaise: number;
   quote: {
-    status?: 'candidate' | 'merchant_approved' | 'buyer_accepted';
+    status?: 'candidate' | 'merchant_approved' | 'buyer_accepted' | 'superseded' | 'expired';
     unitTotalPaise: number;
     contributionMarginBps: number;
     expiresAt?: string;

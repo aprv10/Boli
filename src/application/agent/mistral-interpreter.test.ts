@@ -27,7 +27,7 @@ const validInterpretation = {
 
 describe('Mistral RFQ interpreter', () => {
   it('uses one capped, non-reasoning structured-output call', async () => {
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
       new Response(
         JSON.stringify({
           choices: [{ message: { content: JSON.stringify(validInterpretation) } }],
@@ -84,13 +84,13 @@ describe('Mistral RFQ interpreter', () => {
         currentDate: '2026-08-25',
         fetchImpl: fetchImpl as typeof fetch,
       }),
-    ).rejects.toMatchObject<MistralInterpreterError>({
+    ).rejects.toMatchObject({
       code: 'INVALID_PROVIDER_OUTPUT',
-    });
+    } satisfies Partial<MistralInterpreterError>);
   });
 
   it('does not retry a rejected provider request', async () => {
-    const fetchImpl = vi.fn(async () => new Response(null, { status: 429 }));
+    const fetchImpl = vi.fn<typeof fetch>(async () => new Response(null, { status: 429 }));
 
     await expect(
       interpretRfqWithMistral({
@@ -99,7 +99,7 @@ describe('Mistral RFQ interpreter', () => {
         currentDate: '2026-08-25',
         fetchImpl: fetchImpl as typeof fetch,
       }),
-    ).rejects.toMatchObject<MistralInterpreterError>({ code: 'PROVIDER_UNAVAILABLE' });
+    ).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE' } satisfies Partial<MistralInterpreterError>);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });

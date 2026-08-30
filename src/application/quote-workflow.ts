@@ -89,6 +89,7 @@ export type StoredQuote = {
 
 export type StoredQuoteEvent = {
   id: string;
+  dealId: string;
   quoteId: string | null;
   sequence: number;
   eventType: string;
