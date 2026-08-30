@@ -661,7 +661,16 @@ export async function processPaymentCapturedWebhook(
     payloadHash,
     now,
   });
-  if (!claim.acquired) return { duplicate: true, status: claim.status };
+  if (!claim.acquired) {
+    if (claim.status === 'received') {
+      throw new PaymentWorkflowError(
+        'WEBHOOK_PROCESSING_INCOMPLETE',
+        'Webhook processing is incomplete; the provider should retry delivery.',
+        503,
+      );
+    }
+    return { duplicate: true, status: claim.status };
+  }
   if (!parsed.success) {
     await binding
       .prepare(
@@ -803,7 +812,16 @@ async function processRefundWebhook(
     payloadHash,
     now,
   });
-  if (!claim.acquired) return { duplicate: true, status: claim.status };
+  if (!claim.acquired) {
+    if (claim.status === 'received') {
+      throw new PaymentWorkflowError(
+        'WEBHOOK_PROCESSING_INCOMPLETE',
+        'Webhook processing is incomplete; the provider should retry delivery.',
+        503,
+      );
+    }
+    return { duplicate: true, status: claim.status };
+  }
   const entity = parsed.data.payload.refund.entity;
   const row = await binding
     .prepare(
