@@ -11,6 +11,8 @@
     "start": "vinext start",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
+    "demo:reset": "node scripts/reset-demo.mjs",
+    "demo:smoke": "node scripts/demo-smoke.mjs",
     "test": "vitest run --config vitest.config.ts"
   },
   "dependencies": {

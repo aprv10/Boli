@@ -10,6 +10,8 @@ import {
 } from '@/src/application/quote-workflow';
 import { ApproveQuoteButton } from './approve-quote-button';
 import { ApproveCounterofferButton } from './approve-counteroffer-button';
+import { loadDealPaymentState } from '@/src/application/payment-workflow';
+import { FulfilmentFailureButton } from './fulfilment-failure-button';
 
 type DealPageProps = { params: Promise<{ dealId: string }> };
 
@@ -43,6 +45,7 @@ export default async function MerchantDealPage({ params }: DealPageProps) {
   const { deal, result } = workspace;
   const quoteHistory = await loadDealQuotes(env.DB, dealId);
   const counterofferHistory = await loadDealCounteroffers(env.DB, dealId);
+  const payment = await loadDealPaymentState(env.DB, dealId);
   const pendingCounteroffers = counterofferHistory.filter(
     (counteroffer) => counteroffer.status === 'merchant_approval_required',
   );
@@ -105,11 +108,29 @@ export default async function MerchantDealPage({ params }: DealPageProps) {
             <span aria-hidden="true">◇</span>
             <p>
               <strong>{currentQuote ? `Quote v${currentQuote.version} is ${currentQuote.status.replaceAll('_', ' ')}` : 'Preview only'}</strong>
-              {currentQuote
+              {payment.stage === 'paid'
+                ? 'A verified captured-payment webhook now anchors fulfilment.'
+                : payment.stage === 'refunded'
+                  ? 'The buyer was refunded exactly once after declining the recovery offer.'
+                  : currentQuote
                 ? 'The quote contract exists, but no order or payment action has been created.'
                 : 'No order, approval or payment action has been created.'}
             </p>
           </div>
+
+          {payment.stage === 'paid' || payment.stage === 'replacement_offered' ? (
+            <div className="merchant-recovery-card">
+              <span>{payment.stage === 'paid' ? 'Paid · fulfilment pending' : 'Recovery offer sent'}</span>
+              <p>
+                {payment.incident?.explanation ??
+                  'Run the flagship stock-loss case to prove that buyer constraints survive payment.'}
+              </p>
+              <FulfilmentFailureButton
+                dealId={deal.id}
+                disabled={payment.stage !== 'paid'}
+              />
+            </div>
+          ) : null}
         </aside>
 
         <section className="quote-results" aria-labelledby="quote-results-title">

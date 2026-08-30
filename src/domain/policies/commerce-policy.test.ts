@@ -83,4 +83,45 @@ describe('evaluateCommerceAction', () => {
     expect(decision.approvalRequired).toBe(false);
     expect(decision.reasonCodes).toContain('MERCHANT_MARGIN_FLOOR_FAILED');
   });
+
+  it('creates checkout only from the exact accepted quote with live inventory', () => {
+    const allowed = evaluateCommerceAction({
+      action: 'create_checkout',
+      policy,
+      now: '2026-09-01T00:00:00.000Z',
+      buyerMaxUnitPaise: 90_000,
+      expectedQuoteHash: 'quote-hash',
+      inventoryAvailable: true,
+      quote: { ...safeQuote, status: 'buyer_accepted' },
+    });
+    const blocked = evaluateCommerceAction({
+      action: 'create_checkout',
+      policy,
+      now: '2026-09-01T00:00:00.000Z',
+      buyerMaxUnitPaise: 90_000,
+      expectedQuoteHash: 'quote-hash',
+      inventoryAvailable: false,
+      quote: { ...safeQuote, status: 'buyer_accepted' },
+    });
+
+    expect(allowed.allowed).toBe(true);
+    expect(blocked.allowed).toBe(false);
+    expect(blocked.reasonCodes).toContain('INVENTORY_STILL_AVAILABLE_FAILED');
+  });
+
+  it('never refunds more than the captured remainder', () => {
+    const decision = evaluateCommerceAction({
+      action: 'issue_refund',
+      policy,
+      now: '2026-09-01T00:00:00.000Z',
+      buyerMaxUnitPaise: 90_000,
+      capturedAmountPaise: 8_500_000,
+      alreadyRefundedPaise: 500_000,
+      requestedRefundPaise: 8_100_000,
+      quote: safeQuote,
+    });
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.reasonCodes).toContain('REFUND_WITHIN_CAPTURED_BALANCE_FAILED');
+  });
 });

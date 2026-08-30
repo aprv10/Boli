@@ -4,6 +4,7 @@ import { ensureDatabase } from '@/src/adapters/db/database';
 import { authorizeAgentRequest } from '@/src/application/agent/agent-access';
 import {
   acceptAgentQuote,
+  createAgentCheckout,
   describeMerchantForAgent,
   getAgentAuditReceipt,
   getAgentDealSnapshot,
@@ -43,6 +44,14 @@ const requestSchema = z.discriminatedUnion('tool', [
   z.object({
     tool: z.literal('accept_quote'),
     input: z.object({ dealId: z.uuid(), expectedQuoteHash: hashSchema }),
+  }),
+  z.object({
+    tool: z.literal('create_checkout'),
+    input: z.object({
+      dealId: z.uuid(),
+      expectedQuoteHash: hashSchema,
+      idempotencyKey: z.uuid(),
+    }),
   }),
 ]);
 
@@ -141,6 +150,20 @@ export async function POST(request: Request) {
           },
           'EXACT_QUOTE_HASH_AND_BUYER_MANDATE_VERIFIED',
           'create_checkout',
+        );
+      }
+      case 'create_checkout': {
+        const result = await createAgentCheckout(
+          env.DB,
+          call.input.dealId,
+          call.input.expectedQuoteHash,
+          call.input.idempotencyKey,
+        );
+        return toolResponse(
+          call.tool,
+          result,
+          'SEPARATE_MONEY_GATE_AND_INVENTORY_RECHECKED',
+          result.nextAction,
         );
       }
     }

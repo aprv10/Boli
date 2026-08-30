@@ -20,6 +20,8 @@ const CREATE_STATEMENTS = [
     unit_price_paise INTEGER NOT NULL CHECK (unit_price_paise >= 0),
     unit_cost_paise INTEGER NOT NULL CHECK (unit_cost_paise >= 0),
     available_quantity INTEGER NOT NULL CHECK (available_quantity >= 0),
+    reserved_quantity INTEGER NOT NULL DEFAULT 0 CHECK (reserved_quantity >= 0),
+    inventory_version INTEGER NOT NULL DEFAULT 1 CHECK (inventory_version > 0),
     lead_time_days INTEGER NOT NULL CHECK (lead_time_days >= 0),
     active INTEGER NOT NULL CHECK (active IN (0, 1)),
     created_at TEXT NOT NULL
@@ -146,8 +148,119 @@ const CREATE_STATEMENTS = [
     created_at TEXT NOT NULL
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_quote_events_deal_sequence ON quote_events(deal_id, sequence)`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_quote_events_quote_type ON quote_events(quote_id, event_type)`,
+  `CREATE INDEX IF NOT EXISTS idx_quote_events_quote_type ON quote_events(quote_id, event_type)`,
   `CREATE INDEX IF NOT EXISTS idx_quote_events_deal_created ON quote_events(deal_id, created_at)`,
+  `CREATE TABLE IF NOT EXISTS payment_actions (
+    id TEXT PRIMARY KEY NOT NULL,
+    deal_id TEXT NOT NULL REFERENCES deals(id),
+    quote_id TEXT NOT NULL REFERENCES quotes(id),
+    idempotency_key TEXT NOT NULL,
+    action_type TEXT NOT NULL CHECK (action_type IN ('create_order', 'refund')),
+    amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
+    status TEXT NOT NULL CHECK (status IN ('pending', 'succeeded', 'failed', 'reconciliation_required')),
+    provider TEXT NOT NULL CHECK (provider IN ('razorpay', 'demo')),
+    provider_reference TEXT,
+    failure_code TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_actions_idempotency ON payment_actions(idempotency_key)`,
+  `CREATE INDEX IF NOT EXISTS idx_payment_actions_deal_type ON payment_actions(deal_id, action_type)`,
+  `CREATE TABLE IF NOT EXISTS razorpay_orders (
+    id TEXT PRIMARY KEY NOT NULL,
+    payment_action_id TEXT NOT NULL REFERENCES payment_actions(id),
+    deal_id TEXT NOT NULL REFERENCES deals(id),
+    quote_id TEXT NOT NULL REFERENCES quotes(id),
+    quote_hash TEXT NOT NULL,
+    mandate_hash TEXT NOT NULL,
+    policy_version INTEGER NOT NULL CHECK (policy_version > 0),
+    provider_order_id TEXT NOT NULL,
+    provider TEXT NOT NULL CHECK (provider IN ('razorpay', 'demo')),
+    checkout_key_id TEXT,
+    amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
+    currency TEXT NOT NULL CHECK (currency = 'INR'),
+    status TEXT NOT NULL CHECK (status IN ('created', 'paid', 'refund_pending', 'refunded')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_razorpay_orders_action ON razorpay_orders(payment_action_id)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_razorpay_orders_provider_id ON razorpay_orders(provider_order_id)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_razorpay_orders_quote ON razorpay_orders(quote_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_razorpay_orders_deal_status ON razorpay_orders(deal_id, status)`,
+  `CREATE TABLE IF NOT EXISTS checkout_callbacks (
+    id TEXT PRIMARY KEY NOT NULL,
+    order_id TEXT NOT NULL REFERENCES razorpay_orders(id),
+    provider_payment_id TEXT NOT NULL,
+    signature_verified INTEGER NOT NULL CHECK (signature_verified IN (0, 1)),
+    payload_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_checkout_callbacks_payment ON checkout_callbacks(provider_payment_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_checkout_callbacks_order ON checkout_callbacks(order_id)`,
+  `CREATE TABLE IF NOT EXISTS razorpay_payments (
+    id TEXT PRIMARY KEY NOT NULL,
+    order_id TEXT NOT NULL REFERENCES razorpay_orders(id),
+    provider_payment_id TEXT NOT NULL,
+    amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
+    currency TEXT NOT NULL CHECK (currency = 'INR'),
+    status TEXT NOT NULL CHECK (status IN ('captured', 'partially_refunded', 'refunded')),
+    captured_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_razorpay_payments_provider_id ON razorpay_payments(provider_payment_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_razorpay_payments_order ON razorpay_payments(order_id)`,
+  `CREATE TABLE IF NOT EXISTS webhook_inbox (
+    id TEXT PRIMARY KEY NOT NULL,
+    event_type TEXT NOT NULL,
+    signature_verified INTEGER NOT NULL CHECK (signature_verified IN (0, 1)),
+    payload_hash TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('received', 'processed', 'rejected')),
+    failure_code TEXT,
+    received_at TEXT NOT NULL,
+    processed_at TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_webhook_inbox_status_received ON webhook_inbox(status, received_at)`,
+  `CREATE TABLE IF NOT EXISTS refunds (
+    id TEXT PRIMARY KEY NOT NULL,
+    payment_id TEXT NOT NULL REFERENCES razorpay_payments(id),
+    payment_action_id TEXT NOT NULL REFERENCES payment_actions(id),
+    amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
+    reason TEXT NOT NULL,
+    provider_refund_id TEXT,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'processed', 'failed', 'reconciliation_required')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_refunds_action ON refunds(payment_action_id)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_refunds_provider_id ON refunds(provider_refund_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_refunds_payment_status ON refunds(payment_id, status)`,
+  `CREATE TABLE IF NOT EXISTS inventory_reservations (
+    id TEXT PRIMARY KEY NOT NULL,
+    quote_id TEXT NOT NULL REFERENCES quotes(id),
+    product_id TEXT NOT NULL REFERENCES products(id),
+    quantity INTEGER NOT NULL CHECK (quantity > 0),
+    status TEXT NOT NULL CHECK (status IN ('reserved', 'consumed', 'released', 'lost')),
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_inventory_reservations_quote_product ON inventory_reservations(quote_id, product_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_inventory_reservations_status_expiry ON inventory_reservations(status, expires_at)`,
+  `CREATE TABLE IF NOT EXISTS fulfilment_incidents (
+    id TEXT PRIMARY KEY NOT NULL,
+    deal_id TEXT NOT NULL REFERENCES deals(id),
+    quote_id TEXT NOT NULL REFERENCES quotes(id),
+    failed_product_id TEXT NOT NULL REFERENCES products(id),
+    blocked_substitute_product_id TEXT NOT NULL REFERENCES products(id),
+    status TEXT NOT NULL CHECK (status IN ('replacement_offered', 'buyer_declined', 'refund_pending', 'refunded')),
+    failure_code TEXT NOT NULL,
+    explanation TEXT NOT NULL,
+    replacement_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_fulfilment_incidents_deal ON fulfilment_incidents(deal_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_fulfilment_incidents_status ON fulfilment_incidents(status)`,
 ];
 
 let initialization: Promise<void> | undefined;
@@ -173,9 +286,22 @@ async function initialize(binding: D1Database) {
     "ALTER TABLE quote_events ADD COLUMN previous_hash TEXT NOT NULL DEFAULT ''");
   await ensureColumn(binding, 'quote_events', 'event_hash',
     "ALTER TABLE quote_events ADD COLUMN event_hash TEXT NOT NULL DEFAULT ''");
+  await ensureColumn(binding, 'products', 'reserved_quantity',
+    'ALTER TABLE products ADD COLUMN reserved_quantity INTEGER NOT NULL DEFAULT 0');
+  await ensureColumn(binding, 'products', 'inventory_version',
+    'ALTER TABLE products ADD COLUMN inventory_version INTEGER NOT NULL DEFAULT 1');
   await binding
     .prepare('CREATE INDEX IF NOT EXISTS idx_quote_events_event_hash ON quote_events(event_hash)')
     .run();
+  const eventTypeIndex = await binding
+    .prepare("SELECT sql FROM sqlite_schema WHERE type = 'index' AND name = 'idx_quote_events_quote_type'")
+    .first<{ sql: string }>();
+  if (eventTypeIndex?.sql?.toUpperCase().includes('CREATE UNIQUE INDEX')) {
+    await binding.batch([
+      binding.prepare('DROP INDEX idx_quote_events_quote_type'),
+      binding.prepare('CREATE INDEX idx_quote_events_quote_type ON quote_events(quote_id, event_type)'),
+    ]);
+  }
 
   const createdAt = '2026-08-25T00:00:00.000Z';
   const seedStatements = [

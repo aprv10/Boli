@@ -18,13 +18,15 @@ export function commerceManifest(origin: string) {
       { name: 'accept_quote', mutates: true, approval: 'exact_quote_hash' },
       { name: 'get_deal_status', mutates: false, approval: 'none' },
       { name: 'get_audit_receipt', mutates: false, approval: 'none' },
-      { name: 'create_checkout', mutates: true, approval: 'separate_money_gate', available: false },
+      { name: 'create_checkout', mutates: true, approval: 'separate_money_gate', available: true },
     ],
     guarantees: [
       'Hard constraints are never silently relaxed.',
       'The buyer budget and merchant policy are rechecked before acceptance.',
       'Every state-changing action is appended to a hash-linked audit ledger.',
       'Checkout cannot be created by quote acceptance alone.',
+      'Only a verified captured-payment webhook can mark an order paid.',
+      'Refund requests are amount-bounded and idempotent.',
     ],
   };
 }

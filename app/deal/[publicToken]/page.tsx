@@ -5,9 +5,11 @@ import { env } from 'cloudflare:workers';
 import { ensureDatabase } from '@/src/adapters/db/database';
 import { loadDealCounteroffers } from '@/src/application/counteroffer-workflow';
 import { loadPublicDealRoom } from '@/src/application/quote-workflow';
+import { loadPublicPaymentState } from '@/src/application/payment-workflow';
 import type { ConstraintCheck } from '@/src/domain/quoting/types';
 import { AcceptQuoteButton } from './accept-quote-button';
 import { CounterofferPanel } from './counteroffer-panel';
+import { CheckoutPanel } from './checkout-panel';
 
 type DealRoomPageProps = { params: Promise<{ publicToken: string }> };
 
@@ -123,6 +125,8 @@ export default async function DealRoomPage({ params }: DealRoomPageProps) {
   await ensureDatabase(env.DB);
   const room = await loadPublicDealRoom(env.DB, publicToken);
   if (!room) notFound();
+  const payment = await loadPublicPaymentState(env.DB, publicToken);
+  if (!payment) notFound();
   const counterofferHistory = await loadDealCounteroffers(env.DB, room.deal.id);
 
   const quote = room.currentQuote;
@@ -177,7 +181,7 @@ export default async function DealRoomPage({ params }: DealRoomPageProps) {
           <span className="complete">01 Mandate</span>
           <span className="complete">02 Quote</span>
           <span className={accepted ? 'complete' : 'active'}>03 Accept</span>
-          <span>04 Pay</span>
+          <span className={payment.stage === 'paid' || payment.stage === 'refunded' ? 'complete' : accepted ? 'active' : ''}>04 Pay</span>
         </div>
         <Link href="/">← Buyer desk</Link>
       </header>
@@ -322,6 +326,21 @@ export default async function DealRoomPage({ params }: DealRoomPageProps) {
               </div>
               <p>The merchant approval and your acceptance both point to this exact fingerprint.</p>
             </div>
+
+            {accepted ? (
+              <CheckoutPanel
+                publicToken={publicToken}
+                quoteHash={quote.quoteHash}
+                amountPaise={quote.orderTotalPaise}
+                payment={{
+                  stage: payment.stage,
+                  order: payment.order,
+                  providerPaymentId: payment.payment?.providerPaymentId ?? null,
+                  refund: payment.refund,
+                  incident: payment.incident,
+                }}
+              />
+            ) : null}
 
             {!accepted ? (
               <CounterofferPanel

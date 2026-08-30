@@ -4,7 +4,9 @@ export type CommerceAction =
   | 'approve_quote'
   | 'auto_issue_counteroffer'
   | 'merchant_approve_counteroffer'
-  | 'accept_quote';
+  | 'accept_quote'
+  | 'create_checkout'
+  | 'issue_refund';
 
 export type MerchantPolicy = {
   version: number;
@@ -35,6 +37,10 @@ type EvaluateCommerceActionInput = {
   };
   expectedQuoteHash?: string;
   concessionBps?: number;
+  inventoryAvailable?: boolean;
+  capturedAmountPaise?: number;
+  alreadyRefundedPaise?: number;
+  requestedRefundPaise?: number;
 };
 
 function check(
@@ -54,6 +60,10 @@ export function evaluateCommerceAction({
   quote,
   expectedQuoteHash,
   concessionBps = 0,
+  inventoryAvailable,
+  capturedAmountPaise = 0,
+  alreadyRefundedPaise = 0,
+  requestedRefundPaise = 0,
 }: EvaluateCommerceActionInput): PolicyDecision {
   const checks: ConstraintCheck[] = [
     check(
@@ -111,6 +121,47 @@ export function evaluateCommerceAction({
         quote.status === 'merchant_approved',
         quote.status ?? 'missing',
         'merchant_approved',
+      ),
+    );
+  }
+
+  if (action === 'create_checkout') {
+    checks.push(
+      check(
+        'QUOTE_STATE_ACCEPTED',
+        quote.status === 'buyer_accepted',
+        quote.status ?? 'missing',
+        'buyer_accepted',
+      ),
+      check(
+        'INVENTORY_STILL_AVAILABLE',
+        inventoryAvailable === true,
+        inventoryAvailable === true ? 'available' : 'unavailable',
+        'available',
+      ),
+    );
+  }
+
+  if (action === 'issue_refund') {
+    const refundablePaise = Math.max(0, capturedAmountPaise - alreadyRefundedPaise);
+    checks.push(
+      check(
+        'PAYMENT_CAPTURED',
+        capturedAmountPaise > 0,
+        capturedAmountPaise,
+        '>0',
+      ),
+      check(
+        'REFUND_AMOUNT_POSITIVE',
+        requestedRefundPaise > 0,
+        requestedRefundPaise,
+        '>0',
+      ),
+      check(
+        'REFUND_WITHIN_CAPTURED_BALANCE',
+        requestedRefundPaise > 0 && requestedRefundPaise <= refundablePaise,
+        requestedRefundPaise,
+        `<=${refundablePaise}`,
       ),
     );
   }

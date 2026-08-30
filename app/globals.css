@@ -532,6 +532,63 @@ button:focus-visible, a:focus-visible, textarea:focus-visible { outline: 3px sol
   .merchant-counteroffer-prices i { display: none; }
 }
 
+.checkout-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  margin-top: 28px;
+  padding: 22px;
+  border: 1px solid var(--ink);
+  border-radius: 4px 18px 4px 18px;
+  background: #fffaf0;
+  box-shadow: 6px 6px 0 var(--ink);
+}
+
+.checkout-panel h3 { margin: 4px 0 6px; font: 700 1.25rem/1.15 var(--serif); }
+.checkout-panel p { margin: 0; line-height: 1.5; }
+.checkout-panel button,
+.fulfilment-demo-control button {
+  min-height: 48px;
+  padding: 0 18px;
+  border: 1px solid var(--ink);
+  border-radius: 3px 10px 3px 10px;
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 750;
+  cursor: pointer;
+}
+.checkout-panel button:disabled,
+.fulfilment-demo-control button:disabled { cursor: not-allowed; opacity: 0.55; }
+.checkout-panel-paid { background: #dcebdd; box-shadow: 6px 6px 0 #244b35; }
+.checkout-panel-refunded { background: #e7e3f3; box-shadow: 6px 6px 0 #4e456c; }
+.checkout-panel-recovery { display: block; background: #fff1d6; box-shadow: 6px 6px 0 #8f4e1d; }
+.checkout-panel-recovery > button { margin-top: 18px; }
+.checkout-notice { grid-column: 1 / -1; color: #31563b; font-weight: 700; }
+.recovery-comparison {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  margin-top: 18px;
+  border: 1px solid var(--ink);
+  background: var(--ink);
+}
+.recovery-comparison > div { display: grid; gap: 4px; padding: 14px; background: #fffaf0; }
+.recovery-comparison span { font-size: 0.66rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+.recovery-comparison small { line-height: 1.35; }
+.merchant-recovery-card { margin-top: 18px; padding: 18px; border: 1px solid rgba(255, 255, 255, 0.35); background: rgba(255, 255, 255, 0.08); }
+.merchant-recovery-card > span { font-size: 0.68rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+.merchant-recovery-card > p { margin: 8px 0 14px; line-height: 1.5; }
+.fulfilment-demo-control { display: grid; gap: 8px; }
+.fulfilment-demo-control button { background: var(--paper); color: var(--ink); }
+.fulfilment-demo-control small { line-height: 1.4; opacity: 0.72; }
+.fulfilment-demo-control p { color: #ffcfbf; }
+
+@media (max-width: 800px) {
+  .checkout-panel { grid-template-columns: 1fr; }
+  .recovery-comparison { grid-template-columns: 1fr; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { transition-duration: 0.01ms !important; }

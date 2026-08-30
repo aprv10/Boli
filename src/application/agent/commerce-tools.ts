@@ -7,6 +7,10 @@ import { submitBoundedCounteroffer } from '@/src/application/counteroffer-workfl
 import { submitPurchaseIntent, type SubmitPurchaseIntentInput } from '@/src/application/intent-workflow';
 import { loadActiveMerchantPolicy } from '@/src/application/policy-gate';
 import {
+  createCheckoutOrder,
+  loadDealPaymentState,
+} from '@/src/application/payment-workflow';
+import {
   acceptCurrentQuote,
   loadDealQuoteWorkspace,
   loadDealQuotes,
@@ -71,8 +75,19 @@ export async function getAgentDealSnapshot(binding: D1Database, dealId: string) 
   const currentQuote = history.find(
     (quote) => quote.status === 'buyer_accepted' || quote.status === 'merchant_approved',
   );
-  const stage = currentQuote?.status === 'buyer_accepted'
-    ? 'accepted'
+  const payment = await loadDealPaymentState(binding, dealId);
+  const stage = payment.stage === 'refunded'
+    ? 'refunded'
+    : payment.stage === 'refund_pending'
+      ? 'refund_pending'
+      : payment.stage === 'replacement_offered'
+        ? 'recovery_offer_pending'
+        : payment.stage === 'paid'
+          ? 'paid'
+          : payment.stage === 'payment_pending'
+            ? 'payment_pending'
+            : currentQuote?.status === 'buyer_accepted'
+              ? 'accepted'
     : currentQuote?.status === 'merchant_approved'
       ? 'ready_to_accept'
       : workspace.result.status === 'rejected'
@@ -124,8 +139,22 @@ export async function getAgentDealSnapshot(binding: D1Database, dealId: string) 
           expiresAt: currentQuote.expiresAt,
           status: currentQuote.status,
           checks: currentQuote.checks,
-        }
+      }
       : null,
+    payment: {
+      stage: payment.stage,
+      order: payment.order
+        ? {
+            providerOrderId: payment.order.providerOrderId,
+            provider: payment.order.provider,
+            amountPaise: payment.order.amountPaise,
+            currency: payment.order.currency,
+            status: payment.order.status,
+          }
+        : null,
+      providerPaymentId: payment.payment?.providerPaymentId ?? null,
+      refund: payment.refund,
+    },
   };
 }
 
@@ -171,6 +200,35 @@ export async function acceptAgentQuote(
     alreadyAccepted: result.alreadyAccepted,
     dealRoomPath: snapshot.deal.dealRoomPath,
     nextAction: 'CREATE_CHECKOUT_REQUIRES_SEPARATE_GATE',
+  };
+}
+
+export async function createAgentCheckout(
+  binding: D1Database,
+  dealId: string,
+  expectedQuoteHash: string,
+  idempotencyKey: string,
+) {
+  const snapshot = await getAgentDealSnapshot(binding, dealId);
+  if (!snapshot.currentQuote || snapshot.currentQuote.status !== 'buyer_accepted') {
+    throw new QuoteWorkflowError(
+      'QUOTE_NOT_ACCEPTED',
+      'The AI buyer must accept the exact executable quote before requesting checkout.',
+      409,
+    );
+  }
+  const result = await createCheckoutOrder(
+    binding,
+    snapshot.deal.publicToken,
+    expectedQuoteHash,
+    idempotencyKey,
+  );
+  return {
+    ...result,
+    nextAction:
+      result.state.order?.provider === 'demo'
+        ? 'EXPLICIT_DEMO_PAYMENT_CONFIRMATION_REQUIRED'
+        : 'OPEN_RAZORPAY_TEST_CHECKOUT',
   };
 }
 

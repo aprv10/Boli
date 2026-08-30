@@ -43,6 +43,20 @@
       "when": 1787926697959,
       "tag": "0005_yellow_mysterio",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1788128315393,
+      "tag": "0006_daffy_silhouette",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1788128735758,
+      "tag": "0007_clumsy_gauntlet",
+      "breakpoints": true
     }
   ]
 }
