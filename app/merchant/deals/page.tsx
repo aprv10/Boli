@@ -5,6 +5,7 @@ import { deals, purchaseIntents, purchaseRequirements } from '@/db/schema';
 import { ensureDatabase, getDatabase } from '@/src/adapters/db/database';
 import { DEMO_MERCHANT } from '@/src/adapters/db/seed-data';
 import { ResetDemoButton } from './reset-demo-button';
+import { SiteHeader } from '../../site-header';
 
 function formatTime(timestamp: string) {
   return new Intl.DateTimeFormat('en-IN', {
@@ -41,25 +42,15 @@ export default async function MerchantDealsPage() {
 
   return (
     <main className="merchant-shell">
-      <header className="merchant-header">
-        <Link className="wordmark" href="/">
-          <span className="wordmark-stamp" aria-hidden="true">B</span>
-          <span>Boli</span>
-        </Link>
-        <div className="merchant-header-center">
-          <span className="merchant-monogram" aria-hidden="true">GB</span>
-          <p><span>Merchant desk</span><strong>The Good Batch</strong></p>
-        </div>
-        <Link className="buyer-return" href="/">Open buyer desk ↗</Link>
-      </header>
+      <SiteHeader active="merchant" context="The Good Batch · Merchant" />
 
       <section className="inbox-layout">
         <aside className="inbox-rail">
-          <p className="eyebrow"><span aria-hidden="true">✦</span> Live deal room</p>
-          <h1>Requests worth answering.</h1>
+          <p className="eyebrow"><span aria-hidden="true">✦</span> Merchant workspace</p>
+          <h1>Review and approve buyer deals.</h1>
           <p className="inbox-intro">
-            Every brief arrives with the buyer’s original words intact. Boli will
-            structure it next—without pretending ambiguity is certainty.
+            Open a request, compare the safe quote options and approve the offer you want
+            the buyer to see.
           </p>
           <dl className="inbox-stats">
             <div><dt>New requests</dt><dd>{inbox.length.toString().padStart(2, '0')}</dd></div>
@@ -69,7 +60,7 @@ export default async function MerchantDealsPage() {
 
         <section className="deal-inbox" aria-labelledby="inbox-title">
           <div className="inbox-heading">
-            <div><p className="micro-label">Merchant inbox</p><h2 id="inbox-title">Unshaped requests</h2></div>
+            <div><p className="micro-label">Deal inbox</p><h2 id="inbox-title">Buyer requests</h2></div>
             <div className="inbox-tools">
               <ResetDemoButton />
               <span className="inbox-count">{inbox.length} total</span>
@@ -81,7 +72,7 @@ export default async function MerchantDealsPage() {
               <span aria-hidden="true">↳</span>
               <h3>The desk is clear.</h3>
               <p>Submit a request from the buyer desk and it will appear here.</p>
-              <Link href="/">Create the first request</Link>
+              <Link href="/request">Create the first request</Link>
             </div>
           ) : (
             <div className="deal-list">

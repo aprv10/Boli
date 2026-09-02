@@ -12,6 +12,7 @@ import { ApproveQuoteButton } from './approve-quote-button';
 import { ApproveCounterofferButton } from './approve-counteroffer-button';
 import { loadDealPaymentState } from '@/src/application/payment-workflow';
 import { FulfilmentFailureButton } from './fulfilment-failure-button';
+import { SiteHeader } from '../../../site-header';
 
 type DealPageProps = { params: Promise<{ dealId: string }> };
 
@@ -56,14 +57,11 @@ export default async function MerchantDealPage({ params }: DealPageProps) {
 
   return (
     <main className="quote-workspace">
-      <header className="merchant-header quote-header">
-        <Link className="wordmark" href="/">
-          <span className="wordmark-stamp" aria-hidden="true">B</span>
-          <span>Boli</span>
-        </Link>
-        <p className="quote-header-title">Quote laboratory · The Good Batch</p>
-        <Link className="buyer-return" href="/merchant/deals">← Deal inbox</Link>
-      </header>
+      <SiteHeader active="merchant" context="Reviewing a buyer deal" />
+      <div className="workspace-subnav">
+        <Link href="/merchant/deals">← Back to all deals</Link>
+        <span>Deal {deal.id.slice(0, 8).toUpperCase()}</span>
+      </div>
 
       <section className="quote-layout">
         <aside className="quote-brief">
@@ -93,15 +91,18 @@ export default async function MerchantDealPage({ params }: DealPageProps) {
           </div>
 
           {deal.agentInterpretation ? (
-            <div className="agent-trace">
-              <span aria-hidden="true">✦</span>
-              <p>
-                <strong>Mistral interpretation attached</strong>
-                {deal.agentInterpretation.model} · buyer {deal.agentInterpretation.reviewStatus} ·{' '}
-                {deal.agentInterpretation.totalTokens.toLocaleString('en-IN')} tokens ·{' '}
-                {deal.agentInterpretation.latencyMs.toLocaleString('en-IN')} ms
-              </p>
-            </div>
+            <details className="merchant-technical-summary">
+              <summary>Request source details</summary>
+              <div className="agent-trace">
+                <span aria-hidden="true">✦</span>
+                <p>
+                  <strong>Mistral interpretation attached</strong>
+                  {deal.agentInterpretation.model} · buyer {deal.agentInterpretation.reviewStatus} ·{' '}
+                  {deal.agentInterpretation.totalTokens.toLocaleString('en-IN')} tokens ·{' '}
+                  {deal.agentInterpretation.latencyMs.toLocaleString('en-IN')} ms
+                </p>
+              </div>
+            </details>
           ) : null}
 
           <div className="no-money-notice">
@@ -209,7 +210,7 @@ export default async function MerchantDealPage({ params }: DealPageProps) {
               ) : null}
               <div className="quote-engine-note">
                 <span>{result.feasibleCombinations} feasible</span>
-                <p>Options are selected by explicit positions: lowest price, balanced use of budget, and richest kit under the cap.</p>
+                <p>Choose the offer you want the buyer to review. Every option already respects the locked requirements.</p>
               </div>
               <div className="quote-option-list">
                 {result.options.map((option, index) => (
@@ -238,18 +239,20 @@ export default async function MerchantDealPage({ params }: DealPageProps) {
                         ))}
                       </div>
 
-                      <div className="quote-breakdown">
-                        <div><span>Products</span><strong>{formatMoney(option.productUnitPaise)}</strong></div>
-                        <div><span>Assembly, branding, delivery & reserve</span><strong>{formatMoney(option.serviceUnitPaise)}</strong></div>
-                        <div><span>Headroom below buyer cap</span><strong>{formatMoney(option.headroomPaise)}</strong></div>
-                        <div className="order-total"><span>Order total · {deal.quantity} kits</span><strong>{formatMoney(option.orderTotalPaise)}</strong></div>
-                      </div>
-
-                      <div className="quote-checks">
-                        {option.checks.slice(0, 4).map((check) => (
-                          <span key={check.code}>✓ {check.code.replaceAll('_', ' ').toLowerCase()}</span>
-                        ))}
-                      </div>
+                      <details className="merchant-option-details">
+                        <summary>Price and policy details</summary>
+                        <div className="quote-breakdown">
+                          <div><span>Products</span><strong>{formatMoney(option.productUnitPaise)}</strong></div>
+                          <div><span>Assembly, branding, delivery & reserve</span><strong>{formatMoney(option.serviceUnitPaise)}</strong></div>
+                          <div><span>Headroom below buyer cap</span><strong>{formatMoney(option.headroomPaise)}</strong></div>
+                          <div className="order-total"><span>Order total · {deal.quantity} kits</span><strong>{formatMoney(option.orderTotalPaise)}</strong></div>
+                        </div>
+                        <div className="quote-checks">
+                          {option.checks.slice(0, 4).map((check) => (
+                            <span key={check.code}>✓ {check.code.replaceAll('_', ' ').toLowerCase()}</span>
+                          ))}
+                        </div>
+                      </details>
 
                       <ApproveQuoteButton
                         dealId={deal.id}

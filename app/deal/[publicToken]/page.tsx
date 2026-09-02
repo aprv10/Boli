@@ -10,6 +10,7 @@ import type { ConstraintCheck } from '@/src/domain/quoting/types';
 import { AcceptQuoteButton } from './accept-quote-button';
 import { CounterofferPanel } from './counteroffer-panel';
 import { CheckoutPanel } from './checkout-panel';
+import { SiteHeader } from '../../site-header';
 
 type DealRoomPageProps = { params: Promise<{ publicToken: string }> };
 
@@ -172,24 +173,21 @@ export default async function DealRoomPage({ params }: DealRoomPageProps) {
 
   return (
     <main className="deal-room-shell">
-      <header className="deal-room-header">
-        <Link className="wordmark" href="/">
-          <span className="wordmark-stamp" aria-hidden="true">B</span>
-          <span>Boli</span>
-        </Link>
+      <SiteHeader active="buyer" context="Your Deal Room" />
+      <div className="deal-progress-bar">
+        <Link href="/request">← Back to buyer workspace</Link>
         <div className="deal-room-progress" aria-label="Deal progress">
           <span className="complete">01 Mandate</span>
           <span className="complete">02 Quote</span>
           <span className={accepted ? 'complete' : 'active'}>03 Accept</span>
           <span className={payment.stage === 'paid' || payment.stage === 'refunded' ? 'complete' : accepted ? 'active' : ''}>04 Pay</span>
         </div>
-        <Link href="/">← Buyer desk</Link>
-      </header>
+      </div>
 
       <section className="deal-room-hero">
         <div>
-          <p className="eyebrow"><span aria-hidden="true">✦</span> Executable quote contract</p>
-          <h1>The exact deal.<br /><em>Nothing implied.</em></h1>
+          <p className="eyebrow"><span aria-hidden="true">✦</span> Your approved quote</p>
+          <h1>Review the deal.<br /><em>Then decide.</em></h1>
         </div>
         <div className="deal-room-mandate">
           <span>Buyer mandate</span>
@@ -319,13 +317,16 @@ export default async function DealRoomPage({ params }: DealRoomPageProps) {
               <div className="executable-grand-total"><dt>Exact order total</dt><dd>{formatMoney(quote.orderTotalPaise)}</dd></div>
             </dl>
 
-            <div className="quote-identity">
-              <div>
-                <span>Quote fingerprint · SHA-256</span>
-                <code>{quote.quoteHash}</code>
+            <details className="quote-technical-details">
+              <summary>Quote and approval details</summary>
+              <div className="quote-identity">
+                <div>
+                  <span>Quote fingerprint · SHA-256</span>
+                  <code>{quote.quoteHash}</code>
+                </div>
+                <p>The merchant approval and your acceptance both point to this exact fingerprint.</p>
               </div>
-              <p>The merchant approval and your acceptance both point to this exact fingerprint.</p>
-            </div>
+            </details>
 
             {accepted ? (
               <CheckoutPanel
@@ -355,85 +356,69 @@ export default async function DealRoomPage({ params }: DealRoomPageProps) {
           </article>
 
           <aside className="deal-room-proof">
-            <section className={`audit-integrity ${room.auditVerified ? 'verified' : 'unverified'}`}>
-              <div className="audit-integrity-heading">
-                <p className="micro-label">Cryptographic receipt</p>
-                <span>{room.auditVerified ? 'Chain verified' : 'Integrity warning'}</span>
-              </div>
-              <h2>Every decision leaves a fingerprint.</h2>
-              <p>
-                Each action commits to the one before it. Editing an amount, approval,
-                or actor would break the chain.
-              </p>
-              <dl>
-                <div><dt>Policy</dt><dd>v{quote.policyVersion}</dd></div>
-                <div><dt>Events sealed</dt><dd>{room.events.length}</dd></div>
-                <div><dt>Ledger head</dt><dd><code>{room.auditHeadHash.slice(0, 18)}…</code></dd></div>
-              </dl>
-            </section>
-
-            <section>
-              <p className="micro-label">Policy receipt</p>
-              <h2>Why this is safe</h2>
+            <section className="deal-safety-summary">
+              <p className="micro-label">Checked by Boli</p>
+              <h2>Why this quote is safe</h2>
               <div className="deal-room-checks">
-                {policyChecks.map((check) => {
+                {policyChecks.slice(0, 4).map((check) => {
                   const presented = presentCheck(check);
                   return (
-                  <div key={check.code}>
-                    <span aria-hidden="true">✓</span>
-                    <p>
-                      <strong>{presented.label}</strong>
-                      {presented.value}
-                      <small>{presented.requirement}</small>
-                    </p>
-                  </div>
+                    <div key={check.code}>
+                      <span aria-hidden="true">✓</span>
+                      <p><strong>{presented.label}</strong>{presented.value}</p>
+                    </div>
                   );
                 })}
               </div>
             </section>
 
-            <section className="deal-room-timeline">
-              <p className="micro-label">Append-only activity</p>
-              <h2>Decision trail</h2>
-              {room.events.map((event) => (
-                <article key={event.id}>
-                  <span>{String(event.sequence).padStart(2, '0')}</span>
-                  <div>
-                    <p>{event.summary}</p>
-                    <small>{event.actorType} · {formatMoment(event.createdAt)}</small>
-                    <code className="event-fingerprint">{event.eventHash.slice(0, 12)}…</code>
+            <details className="deal-proof-details">
+              <summary>Audit and technical details <span>{room.auditVerified ? 'Verified' : 'Review'}</span></summary>
+              <div className="deal-proof-detail-body">
+                <section className={`audit-integrity ${room.auditVerified ? 'verified' : 'unverified'}`}>
+                  <div className="audit-integrity-heading">
+                    <p className="micro-label">Cryptographic receipt</p>
+                    <span>{room.auditVerified ? 'Chain verified' : 'Integrity warning'}</span>
                   </div>
-                </article>
-              ))}
-            </section>
-
-            <section className="quote-version-history">
-              <p className="micro-label">Quote history</p>
-              {room.quoteHistory.map((item) => (
-                <div key={item.id}>
-                  <strong>v{item.version} · {item.label}</strong>
-                  <span>{statusLabel(item.status)}</span>
-                  <code>{item.quoteHash.slice(0, 12)}…</code>
-                </div>
-              ))}
-            </section>
-
-            {counterofferHistory.length ? (
-              <section className="deal-room-negotiation-history">
-                <p className="micro-label">Negotiation history</p>
-                <h2>Every ask, bounded</h2>
-                {counterofferHistory.map((counteroffer) => (
-                  <article key={counteroffer.id}>
-                    <div>
-                      <strong>{formatMoney(counteroffer.targetUnitPaise)} target</strong>
-                      <span>{statusLabel(counteroffer.status)}</span>
-                    </div>
-                    <p>{counteroffer.decisionSummary}</p>
-                    <small>{counteroffer.reasonCodes.join(' · ').replaceAll('_', ' ')}</small>
-                  </article>
-                ))}
-              </section>
-            ) : null}
+                  <h2>Every decision leaves a fingerprint.</h2>
+                  <p>Each action commits to the one before it. Editing an amount, approval, or actor would break the chain.</p>
+                  <dl>
+                    <div><dt>Policy</dt><dd>v{quote.policyVersion}</dd></div>
+                    <div><dt>Events sealed</dt><dd>{room.events.length}</dd></div>
+                    <div><dt>Ledger head</dt><dd><code>{room.auditHeadHash.slice(0, 18)}…</code></dd></div>
+                  </dl>
+                </section>
+                <section className="deal-room-timeline">
+                  <p className="micro-label">Append-only activity</p>
+                  <h2>Decision trail</h2>
+                  {room.events.map((event) => (
+                    <article key={event.id}>
+                      <span>{String(event.sequence).padStart(2, '0')}</span>
+                      <div><p>{event.summary}</p><small>{event.actorType} · {formatMoment(event.createdAt)}</small><code className="event-fingerprint">{event.eventHash.slice(0, 12)}…</code></div>
+                    </article>
+                  ))}
+                </section>
+                <section className="quote-version-history">
+                  <p className="micro-label">Quote history</p>
+                  {room.quoteHistory.map((item) => (
+                    <div key={item.id}><strong>v{item.version} · {item.label}</strong><span>{statusLabel(item.status)}</span><code>{item.quoteHash.slice(0, 12)}…</code></div>
+                  ))}
+                </section>
+                {counterofferHistory.length ? (
+                  <section className="deal-room-negotiation-history">
+                    <p className="micro-label">Negotiation history</p>
+                    <h2>Every ask, bounded</h2>
+                    {counterofferHistory.map((counteroffer) => (
+                      <article key={counteroffer.id}>
+                        <div><strong>{formatMoney(counteroffer.targetUnitPaise)} target</strong><span>{statusLabel(counteroffer.status)}</span></div>
+                        <p>{counteroffer.decisionSummary}</p>
+                        <small>{counteroffer.reasonCodes.join(' · ').replaceAll('_', ' ')}</small>
+                      </article>
+                    ))}
+                  </section>
+                ) : null}
+              </div>
+            </details>
           </aside>
         </section>
       )}

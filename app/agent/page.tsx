@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import './agent.css';
+import { SiteHeader } from '../site-header';
 
 const initialBrief =
   'Buy 120 vegan, plastic-free welcome kits below ₹900 each, add our logo, split delivery between Bengaluru and Pune, and deliver by Friday.';
@@ -193,38 +194,29 @@ export default function AgentBuyerPage() {
 
   return (
     <main className="agent-surface">
-      <header className="agent-header">
-        <Link className="wordmark agent-wordmark" href="/">
-          <span className="wordmark-stamp" aria-hidden="true">B</span>
-          <span>Boli</span>
-        </Link>
-        <nav aria-label="Agent navigation">
-          <Link href="/">Buyer desk</Link>
-          <span>AI buyer</span>
-          <Link href="/merchant/deals">Merchant gate</Link>
-        </nav>
-        <a href="/.well-known/boli-commerce" target="_blank" rel="noreferrer">
-          View commerce manifest ↗
-        </a>
-      </header>
+      <SiteHeader active="agent" context="Viewing as AI buyer" />
 
       <section className="agent-intro">
-        <p><span>✦</span> Autonomous where safe · human where consequential</p>
-        <h1>A buyer that knows<br /><em>where it must stop.</em></h1>
+        <p><span>✦</span> Guided AI buyer demo</p>
+        <h1>Watch an AI buyer<br /><em>build a deal safely.</em></h1>
+        <p className="agent-intro-copy">
+          Give the agent a buying request. It will compare safe options, then pause when a
+          merchant decision is required.
+        </p>
         <div>
-          <strong>01</strong><span>One model call<br />to read intent</span>
-          <strong>02</strong><span>Deterministic tools<br />to transact</span>
-          <strong>03</strong><span>Exact hash gate<br />before acceptance</span>
+          <strong>01</strong><span>Understand<br />the request</span>
+          <strong>02</strong><span>Compare<br />safe options</span>
+          <strong>03</strong><span>Pause for<br />human approval</span>
         </div>
       </section>
 
       <section className="agent-workbench">
         <article className="agent-command-card">
           <div className="agent-card-heading">
-            <div><span>BUYER / MANDATE</span><h2>Give the agent a job.</h2></div>
+            <div><span>STEP 1 · BUYING REQUEST</span><h2>What should the agent buy?</h2></div>
             <b>{run ? run.stage.replaceAll('_', ' ') : mandate ? 'review' : 'draft'}</b>
           </div>
-          <label htmlFor="agent-brief">Natural-language purchase mandate</label>
+          <label htmlFor="agent-brief">Describe the order</label>
           <textarea
             id="agent-brief"
             value={brief}
@@ -241,10 +233,10 @@ export default function AgentBuyerPage() {
           {!mandate ? (
             <div className="agent-read-actions">
               <button type="button" onClick={letAgentRead} disabled={working || brief.length < 40}>
-                {working ? 'Reading mandate…' : 'Let Mistral interpret once →'}
+                {working ? 'Reading request…' : 'Read my request with AI →'}
               </button>
               <button type="button" onClick={loadToolDemo} disabled={working}>
-                Test without an API key
+                Use the ready-made example
               </button>
             </div>
           ) : null}
@@ -279,8 +271,8 @@ export default function AgentBuyerPage() {
           {!run ? (
             <div className="agent-empty-run">
               <span>↳</span>
-              <h2>No tools called yet.</h2>
-              <p>Boli will expose every tool, boundary and pause here. There is no hidden chain-of-thought—only auditable actions and facts.</p>
+              <h2>The demo has not started.</h2>
+              <p>Choose the ready-made example or let AI read your own request. Each completed step will appear here.</p>
             </div>
           ) : (
             <>
@@ -339,6 +331,10 @@ export default function AgentBuyerPage() {
           )}
         </aside>
       </section>
+      <details className="agent-developer-details">
+        <summary>Developer details</summary>
+        <a href="/.well-known/boli-commerce" target="_blank" rel="noreferrer">View the commerce manifest ↗</a>
+      </details>
     </main>
   );
 }
