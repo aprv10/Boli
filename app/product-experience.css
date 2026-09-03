@@ -26,7 +26,7 @@
 .shopping-composer > div { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding-top: 15px; }
 .shopping-composer a { display: inline-flex; align-items: center; gap: 7px; text-decoration: none; color: #5b6b52; font-size: 14px; }
 :is(.shopping-start, .shopping-workspace, .merchant-workspace, .order-shell) button, .action-link { cursor: pointer; border: 1px solid #284b37; border-radius: 8px; background: #244734; color: #fff; min-height: 43px; padding: 11px 17px; font-size: 14px; font-weight: 650; letter-spacing: -.015em; transition: background .18s, transform .18s; }
-:is(.shopping-start, .shopping-workspace, .merchant-workspace, .order-shell) button:not(:disabled):hover { background: #345b43; }
+:is(.shopping-start, .shopping-workspace, .merchant-workspace, .order-shell) button:not(:disabled):not(.subtle-button):not(.icon-button):not(.secondary-action):not([aria-pressed]):hover { background: #345b43; }
 :is(.shopping-start, .shopping-workspace, .merchant-workspace, .order-shell) button:disabled { cursor: not-allowed; opacity: .55; }
 .shopping-composer button { display: inline-flex; gap: 9px; align-items: center; justify-content: center; }
 .shopping-examples { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: 24px 4px 0; }

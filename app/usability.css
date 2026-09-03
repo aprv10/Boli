@@ -34,8 +34,8 @@
 .request-refined .amount-input input, .negotiation-form .amount-input input { width: 100%; min-width: 0; min-height: 48px; padding: 10px 12px; font-size: 21px; border: 0; background: transparent; box-shadow: none; color: #244734; font-variant-numeric: tabular-nums; }
 .amount-input:focus-within { outline: 2px solid #78955c; outline-offset: 2px; }
 .budget-choice { display: flex; gap: 4px; flex-wrap: wrap; }
-.shopping-workspace .budget-choice button, .order-shell .budget-choice button { min-height: 32px; padding: 5px 10px; border: 1px solid transparent; font-size: 12px; background: transparent; color: #617357; }
-.shopping-workspace .budget-choice button[aria-pressed=true], .order-shell .budget-choice button[aria-pressed=true] { color: #244734; background: #eaf0df; border-color: #d4dfc7; }
+.request-refined .budget-choice button, .order-shell .budget-choice button { min-height: 32px; padding: 5px 10px; border: 1px solid transparent; font-size: 12px; background: transparent; color: #617357; }
+.request-refined .budget-choice button[aria-pressed=true], .order-shell .budget-choice button[aria-pressed=true] { color: #244734; background: #eaf0df; border-color: #d4dfc7; }
 .request-refined .requirement-presets { gap: 12px 20px; margin-bottom: 22px; }
 .request-refined .custom-requirements { display: block; border-top: 1px solid #e8edde; padding-top: 21px; }
 .custom-requirements > label { font-size: 14px; font-weight: 600; display: block; margin-bottom: 10px; }
@@ -47,7 +47,12 @@
 .requirement-list span { display: block; font-size: 12px; margin-top: 5px; color: #6b795f; line-height: 1.6; }
 .requirement-list li > div:last-child:not(:first-child) { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
 .request-refined .requirement-list select { min-height: 34px; font-size: 12px; padding: 6px 8px; width: auto; }
-.shopping-workspace .icon-button { display: grid; place-items: center; min-height: 34px; padding: 7px; background: transparent; color: #68775c; border: 0; }
+.request-refined .icon-button { display: grid; place-items: center; min-height: 34px; padding: 7px; background: transparent; color: #68775c; border: 0; }
+.subtle-button:not(:disabled):hover { background: #e9eedf; color: #324c2c; }
+.request-refined .icon-button:not(:disabled):hover, .order-shell .icon-button:not(:disabled):hover { background: #edf2e4; color: #435b3b; }
+.request-refined .budget-choice button[aria-pressed=false]:not(:disabled):hover, .order-shell .budget-choice button[aria-pressed=false]:not(:disabled):hover { background: #f0f4e8; color: #345a3c; }
+.order-shell .recovery-actions .secondary-action:not(:disabled):hover { background: rgba(23, 35, 29, 0.06); color: inherit; }
+.order-shell .fulfilment-demo-control button:not(:disabled):hover { background: #e8e3d7; color: var(--ink); }
 .request-refined footer span { max-width: 460px; line-height: 1.7; }
 .custom-quote-invite { display: block; border-top: 1px solid #dce3d4; margin-top: 30px; padding-top: 22px; }
 .custom-quote-invite > summary { color: #53674b; font-size: 14px; font-weight: 600; }
