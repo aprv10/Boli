@@ -26,6 +26,14 @@ export type CreatedProviderRefund = {
   status: 'processed' | 'pending';
 };
 
+export type ProviderPaymentSnapshot = {
+  providerPaymentId: string;
+  providerOrderId: string;
+  amountPaise: number;
+  currency: string;
+  status: string;
+};
+
 function paymentMode(): PaymentProvider {
   return process.env.BOLI_PAYMENT_MODE === 'razorpay' ? 'razorpay' : 'demo';
 }
@@ -189,6 +197,52 @@ export async function createProviderRefund(input: {
     provider: 'razorpay',
     providerRefundId: payload.id,
     status: payload.status === 'processed' ? 'processed' : 'pending',
+  };
+}
+
+export async function fetchRazorpayPayment(
+  providerPaymentId: string,
+): Promise<ProviderPaymentSnapshot> {
+  const { keyId, keySecret } = razorpayCredentials();
+  let response: Response;
+  try {
+    response = await fetch(
+      `${RAZORPAY_API}/payments/${encodeURIComponent(providerPaymentId)}`,
+      {
+        headers: { authorization: basicAuthorization(keyId, keySecret) },
+      },
+    );
+  } catch {
+    throw new PaymentProviderError(
+      'PROVIDER_UNAVAILABLE',
+      'Razorpay payment status is temporarily unavailable.',
+      true,
+    );
+  }
+  const payload = await providerJson(response);
+  if (
+    !response.ok ||
+    typeof payload.id !== 'string' ||
+    payload.id !== providerPaymentId ||
+    typeof payload.order_id !== 'string' ||
+    typeof payload.amount !== 'number' ||
+    !Number.isInteger(payload.amount) ||
+    payload.amount <= 0 ||
+    typeof payload.currency !== 'string' ||
+    typeof payload.status !== 'string'
+  ) {
+    throw new PaymentProviderError(
+      'PROVIDER_REJECTED',
+      'Razorpay did not return a valid payment status.',
+      response.ok,
+    );
+  }
+  return {
+    providerPaymentId: payload.id,
+    providerOrderId: payload.order_id,
+    amountPaise: payload.amount,
+    currency: payload.currency,
+    status: payload.status,
   };
 }
 

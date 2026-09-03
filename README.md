@@ -56,7 +56,7 @@ flowchart LR
     F --> G[Buyer approval]
     G --> H[Exact backend quote]
     H --> I[Razorpay Test Mode]
-    I --> J[Verified webhook]
+    I --> J[Server-side verification]
     J --> K[Paid order + Decision Trace]
 ```
 
@@ -67,7 +67,7 @@ flowchart LR
 - Server-side Mistral structured output for intent, negotiation language, eligible-offer ranking and eligible add-on ranking.
 - Deterministic price, stock, delivery, hard-constraint, margin, discount, reservation and substitution checks.
 - Versioned merchant rules, exact quote fingerprints and an append-only SHA-256 decision chain.
-- Razorpay Test Mode Orders and Checkout, signature verification, raw-body webhook verification, event deduplication, amount reconciliation and idempotent refunds.
+- Razorpay Test Mode Orders and Checkout, signature verification, server-to-server payment reconciliation, raw-body webhook verification, event deduplication and idempotent refunds.
 - A signed local payment adapter that uses the same payment-processing path when Razorpay credentials are unavailable.
 - Typed agent-commerce discovery and purchase tools.
 
@@ -107,7 +107,7 @@ RAZORPAY_KEY_SECRET=...
 RAZORPAY_WEBHOOK_SECRET=...
 ```
 
-Boli rejects non-test Razorpay key IDs. Configure `/api/razorpay/webhook` for `payment.captured`, `refund.processed` and `refund.failed`. A verified browser callback does not mark an order paid; a captured-payment webhook with the expected amount and currency does.
+Boli rejects non-test Razorpay key IDs. After a signed Checkout callback, the server fetches the payment directly from Razorpay and marks it paid only when the provider reports the exact order, amount, currency and `captured` status. Configure `/api/razorpay/webhook` for `payment.captured`, `refund.processed` and `refund.failed` as the asynchronous confirmation and refund path.
 
 Without Mistral, the app exposes an editable request form and clearly labels deterministic recommendation fallbacks. The model is never called during quote acceptance, checkout, payment verification or refund execution.
 

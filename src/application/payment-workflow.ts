@@ -3,6 +3,7 @@ import {
   configuredPaymentProvider,
   createProviderOrder,
   createProviderRefund,
+  fetchRazorpayPayment,
   PaymentProviderError,
   sha256Text,
   verifyHmacSha256,
@@ -596,11 +597,22 @@ export async function verifyCheckoutCallback(
 ) {
   const order = await binding
     .prepare(
-      `SELECT id, deal_id AS dealId, quote_id AS quoteId, provider_order_id AS providerOrderId
+      `SELECT id, payment_action_id AS paymentActionId, deal_id AS dealId,
+        quote_id AS quoteId, provider_order_id AS providerOrderId,
+        amount_paise AS amountPaise, currency, status
        FROM razorpay_orders WHERE provider_order_id = ? AND provider = 'razorpay'`,
     )
     .bind(input.providerOrderId)
-    .first<{ id: string; dealId: string; quoteId: string; providerOrderId: string }>();
+    .first<{
+      id: string;
+      paymentActionId: string;
+      dealId: string;
+      quoteId: string;
+      providerOrderId: string;
+      amountPaise: number;
+      currency: string;
+      status: string;
+    }>();
   if (!order) throw new PaymentWorkflowError('ORDER_NOT_FOUND', 'Checkout order unavailable.', 404);
   const verified = await verifyHmacSha256(
     `${order.providerOrderId}|${input.providerPaymentId}`,
@@ -615,29 +627,125 @@ export async function verifyCheckoutCallback(
     .prepare('SELECT id FROM checkout_callbacks WHERE provider_payment_id = ?')
     .bind(input.providerPaymentId)
     .first();
-  if (existing) return { verified: true, awaitingWebhook: true, duplicate: true };
-  const audit = await prepareAuditBatch(binding, order.dealId, [
+  if (!existing) {
+    const callbackAudit = await prepareAuditBatch(binding, order.dealId, [
+      {
+        id: crypto.randomUUID(),
+        quoteId: order.quoteId,
+        eventType: 'checkout_signature_verified',
+        actorType: 'system',
+        summary: 'Verified the signed Razorpay Checkout response.',
+        data: { providerOrderId: order.providerOrderId, providerPaymentId: input.providerPaymentId },
+        createdAt: now,
+      },
+    ]);
+    await binding.batch([
+      binding
+        .prepare(
+          `INSERT INTO checkout_callbacks (
+            id, order_id, provider_payment_id, signature_verified, payload_hash, created_at
+          ) VALUES (?, ?, ?, 1, ?, ?)`,
+        )
+        .bind(crypto.randomUUID(), order.id, input.providerPaymentId, payloadHash, now),
+      ...callbackAudit.statements,
+    ]);
+  }
+
+  const providerPayment = await fetchRazorpayPayment(input.providerPaymentId);
+  const reconciliation = reconcileCapturedPayment({
+    expected: {
+      providerOrderId: order.providerOrderId,
+      amountPaise: order.amountPaise,
+      currency: 'INR',
+    },
+    observed: {
+      providerOrderId: providerPayment.providerOrderId,
+      amountPaise: providerPayment.amountPaise,
+      currency: providerPayment.currency,
+      status: providerPayment.status,
+    },
+  });
+  const factMismatch = reconciliation.checks.some(
+    (check) => check.code !== 'PAYMENT_CAPTURED' && !check.passed,
+  );
+  if (factMismatch) {
+    throw new PaymentWorkflowError(
+      'PAYMENT_FACT_MISMATCH',
+      'Razorpay payment facts do not match the accepted order.',
+      409,
+    );
+  }
+  if (providerPayment.status !== 'captured') {
+    return {
+      verified: true,
+      confirmed: false,
+      providerStatus: providerPayment.status,
+      awaitingWebhook: true,
+      duplicate: Boolean(existing),
+    };
+  }
+
+  const existingPayment = await binding
+    .prepare('SELECT id FROM razorpay_payments WHERE provider_payment_id = ?')
+    .bind(providerPayment.providerPaymentId)
+    .first();
+  if (existingPayment || order.status === 'paid') {
+    return {
+      verified: true,
+      confirmed: true,
+      providerStatus: providerPayment.status,
+      awaitingWebhook: false,
+      duplicate: true,
+    };
+  }
+  const paymentAudit = await prepareAuditBatch(binding, order.dealId, [
     {
       id: crypto.randomUUID(),
       quoteId: order.quoteId,
-      eventType: 'checkout_signature_verified',
+      eventType: 'payment_captured',
       actorType: 'system',
-      summary: 'Verified the Checkout callback; payment remains pending until webhook capture.',
-      data: { providerOrderId: order.providerOrderId, providerPaymentId: input.providerPaymentId },
+      summary: 'Reconciled the captured payment with Razorpay and marked the exact order paid.',
+      data: {
+        source: 'provider_api_after_checkout',
+        providerOrderId: providerPayment.providerOrderId,
+        providerPaymentId: providerPayment.providerPaymentId,
+        amountPaise: providerPayment.amountPaise,
+        currency: providerPayment.currency,
+        checks: reconciliation.checks,
+        reasonCodes: reconciliation.reasonCodes,
+      },
       createdAt: now,
     },
   ]);
   await binding.batch([
     binding
       .prepare(
-        `INSERT INTO checkout_callbacks (
-          id, order_id, provider_payment_id, signature_verified, payload_hash, created_at
-        ) VALUES (?, ?, ?, 1, ?, ?)`,
+        `INSERT INTO razorpay_payments (
+          id, order_id, provider_payment_id, amount_paise, currency,
+          status, captured_at, created_at
+        ) VALUES (?, ?, ?, ?, 'INR', 'captured', ?, ?)`,
       )
-      .bind(crypto.randomUUID(), order.id, input.providerPaymentId, payloadHash, now),
-    ...audit.statements,
+      .bind(
+        crypto.randomUUID(),
+        order.id,
+        providerPayment.providerPaymentId,
+        providerPayment.amountPaise,
+        now,
+        now,
+      ),
+    binding
+      .prepare("UPDATE razorpay_orders SET status = 'paid', updated_at = ? WHERE id = ? AND status = 'created'")
+      .bind(now, order.id),
+    ...paymentAudit.statements,
+    binding.prepare('UPDATE deals SET updated_at = ? WHERE id = ?').bind(now, order.dealId),
   ]);
-  return { verified: true, awaitingWebhook: true, duplicate: false };
+  return {
+    verified: true,
+    confirmed: true,
+    providerStatus: providerPayment.status,
+    awaitingWebhook: false,
+    duplicate: false,
+  };
 }
 
 export async function processPaymentCapturedWebhook(

@@ -45,9 +45,23 @@ type RazorpaySuccess = {
   razorpay_signature: string;
 };
 
+type RazorpayCheckout = {
+  open: () => void;
+  close?: () => void;
+};
+
+type ScrollSnapshot = {
+  bodyOverflow: string;
+  bodyPosition: string;
+  bodyTop: string;
+  bodyWidth: string;
+  htmlOverflow: string;
+  scrollY: number;
+};
+
 declare global {
   interface Window {
-    Razorpay?: new (options: Record<string, unknown>) => { open: () => void };
+    Razorpay?: new (options: Record<string, unknown>) => RazorpayCheckout;
   }
 }
 
@@ -63,17 +77,25 @@ async function loadRazorpayCheckout() {
   if (window.Razorpay) return;
   await new Promise<void>((resolve, reject) => {
     const existing = document.querySelector<HTMLScriptElement>('script[data-boli-razorpay]');
-    if (existing) {
-      existing.addEventListener('load', () => resolve(), { once: true });
-      existing.addEventListener('error', () => reject(new Error('Checkout could not load.')), { once: true });
-      return;
-    }
+    existing?.remove();
     const script = document.createElement('script');
     script.src = 'https://checkout.razorpay.com/v1/checkout.js';
     script.async = true;
     script.dataset.boliRazorpay = 'true';
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Checkout could not load.'));
+    const timeout = window.setTimeout(() => {
+      script.remove();
+      reject(new Error('Checkout took too long to load. Please try again.'));
+    }, 12_000);
+    script.onload = () => {
+      window.clearTimeout(timeout);
+      if (window.Razorpay) resolve();
+      else reject(new Error('Checkout loaded without becoming available. Please try again.'));
+    };
+    script.onerror = () => {
+      window.clearTimeout(timeout);
+      script.remove();
+      reject(new Error('Checkout could not load. Please check your connection and try again.'));
+    };
     document.head.appendChild(script);
   });
 }
@@ -89,6 +111,9 @@ export function CheckoutPanel({
   const router = useRouter();
   const checkoutKey = useRef<string | null>(null);
   const refundKey = useRef<string | null>(null);
+  const razorpayCheckout = useRef<RazorpayCheckout | null>(null);
+  const scrollSnapshot = useRef<ScrollSnapshot | null>(null);
+  const paymentCallback = useRef<RazorpaySuccess | null>(null);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -96,11 +121,97 @@ export function CheckoutPanel({
   const [createdOrder, setCreatedOrder] = useState<CheckoutPanelProps['payment']['order']>(null);
   const order = payment.order ?? createdOrder;
   useEffect(() => {
-    if (!notice || payment.stage !== 'payment_pending') return;
+    if (!notice || payment.stage !== 'payment_pending' || !paymentCallback.current) return;
     let attempts = 0;
-    const timer = setInterval(() => { router.refresh(); if (++attempts >= 20) clearInterval(timer); }, 3000);
-    return () => clearInterval(timer);
+    let timer = 0;
+    let cancelled = false;
+    const refresh = async () => {
+      const callback = paymentCallback.current;
+      if (!callback || cancelled) return;
+      try {
+        const response = await fetch('/api/razorpay/checkout/verify', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(callback),
+        });
+        const body = await response.json() as {
+          confirmed?: boolean;
+          providerStatus?: string;
+          error?: { message?: string };
+        };
+        if (!response.ok) throw new Error(body.error?.message ?? 'Payment status could not be checked.');
+        setError('');
+        if (body.confirmed) {
+          setNotice('Payment confirmed. Loading your order…');
+          router.refresh();
+          return;
+        }
+        setNotice(body.providerStatus === 'authorized'
+          ? 'Payment authorized. Waiting for Razorpay to capture it…'
+          : 'Payment received. Confirming it with Razorpay…');
+      } catch {
+        setNotice('Payment received. Retrying confirmation with Razorpay…');
+      }
+      router.refresh();
+      attempts += 1;
+      if (!cancelled && attempts < 20) timer = window.setTimeout(refresh, 3000);
+    };
+    timer = window.setTimeout(refresh, 3000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [notice, payment.stage, router]);
+
+  useEffect(() => () => {
+    try { razorpayCheckout.current?.close?.(); } catch { /* Checkout may already be gone. */ }
+    razorpayCheckout.current = null;
+    const snapshot = scrollSnapshot.current;
+    if (!snapshot) return;
+    document.body.style.overflow = snapshot.bodyOverflow;
+    document.body.style.position = snapshot.bodyPosition;
+    document.body.style.top = snapshot.bodyTop;
+    document.body.style.width = snapshot.bodyWidth;
+    document.documentElement.style.overflow = snapshot.htmlOverflow;
+    scrollSnapshot.current = null;
+    window.scrollTo({ top: snapshot.scrollY });
+  }, []);
+
+  function rememberPageScroll() {
+    if (scrollSnapshot.current) return;
+    scrollSnapshot.current = {
+      bodyOverflow: document.body.style.overflow,
+      bodyPosition: document.body.style.position,
+      bodyTop: document.body.style.top,
+      bodyWidth: document.body.style.width,
+      htmlOverflow: document.documentElement.style.overflow,
+      scrollY: window.scrollY,
+    };
+  }
+
+  function releaseCheckoutScroll() {
+    razorpayCheckout.current = null;
+    const snapshot = scrollSnapshot.current;
+    if (!snapshot) return;
+    scrollSnapshot.current = null;
+    const restore = () => {
+      if (razorpayCheckout.current) return;
+      document.body.style.overflow = snapshot.bodyOverflow;
+      document.body.style.position = snapshot.bodyPosition;
+      document.body.style.top = snapshot.bodyTop;
+      document.body.style.width = snapshot.bodyWidth;
+      document.documentElement.style.overflow = snapshot.htmlOverflow;
+      window.scrollTo({ top: snapshot.scrollY });
+    };
+    restore();
+    window.requestAnimationFrame(restore);
+  }
+
+  function closeCheckout() {
+    const checkout = razorpayCheckout.current;
+    try { checkout?.close?.(); } catch { /* Razorpay also closes itself after success. */ }
+    releaseCheckoutScroll();
+  }
 
   async function createOrder() {
     setBusy('create');
@@ -126,7 +237,6 @@ export function CheckoutPanel({
       const result = await response.json() as { state?: { order: CheckoutPanelProps['payment']['order'] }; error?: { message?: string } };
       if (!response.ok || !result.state?.order) throw new Error(result.error?.message ?? 'Checkout was not created.');
       setCreatedOrder(result.state.order);
-      router.refresh();
       if (result.state.order.provider === 'razorpay') await openRazorpay(result.state.order);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Checkout was not created.');
@@ -171,20 +281,40 @@ export function CheckoutPanel({
         description: 'Your Boli order',
         order_id: order.providerOrderId,
         handler: async (result: RazorpaySuccess) => {
+          closeCheckout();
+          paymentCallback.current = result;
+          setNotice('Payment received. Confirming it with Razorpay…');
           try {
             const response = await fetch('/api/razorpay/checkout/verify', {
               method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(result),
             });
-            const body = await response.json() as { error?: { message?: string } };
+            const body = await response.json() as {
+              confirmed?: boolean;
+              providerStatus?: string;
+              error?: { message?: string };
+            };
             if (!response.ok) throw new Error(body.error?.message ?? 'We could not verify the payment response. Refresh status before retrying.');
-            setNotice('Payment response received. Confirming payment with Razorpay…');
+            setError('');
+            setNotice(body.confirmed
+              ? 'Payment confirmed. Loading your order…'
+              : body.providerStatus === 'authorized'
+                ? 'Payment authorized. Waiting for Razorpay to capture it…'
+                : 'Payment received. Confirming it with Razorpay…');
             router.refresh();
-          } catch (caught) { setError(caught instanceof Error ? caught.message : 'Please refresh payment status.'); }
+          } catch (caught) {
+            setError(caught instanceof Error ? caught.message : 'Payment confirmation is being retried.');
+          }
+        },
+        modal: {
+          ondismiss: releaseCheckoutScroll,
         },
         theme: { color: '#183f32' },
       });
+      rememberPageScroll();
+      razorpayCheckout.current = checkout;
       checkout.open();
     } catch (caught) {
+      closeCheckout();
       setError(caught instanceof Error ? caught.message : 'Razorpay Checkout is unavailable.');
     } finally {
       setBusy('');
@@ -295,9 +425,9 @@ export function CheckoutPanel({
   return (
     <section className="checkout-panel checkout-panel-pending">
       <div>
-        <p className="micro-label">Order created · payment pending</p>
+        <p className="micro-label">{notice ? 'Payment received · checking status' : 'Razorpay order ready'}</p>
         <h3>{formatMoney(order.amountPaise)}</h3>
-        <p>Finish checkout to confirm your order.</p>
+        <p>{notice ? 'Boli is confirming the captured payment with Razorpay.' : 'Open Razorpay Test Mode checkout to complete this order.'}</p>
       </div>
       {order.provider === 'demo' ? (
         <button type="button" disabled={Boolean(busy)} onClick={captureDemo}>
