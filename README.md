@@ -10,7 +10,7 @@ Boli lets merchants make their existing store available to AI buyers. A buyer de
 
 Start at `/`: describe the request, check the extracted details, compare up to three eligible offers, and choose **Best Value** (the backend’s recommended option). Request a better price, review the result, optionally add a suitable product, and continue to payment. The existing order controls open in the same buyer workspace; the order URL can be refreshed or revisited.
 
-After payment, use **Demo tools** to simulate an unavailable snack, review the blocked dairy substitute, and accept a valid replacement or request a refund. Open **View Decision Trace**, then **Sell** to see the store-ready state and revenue from actual recorded test orders. See [DEMO_SCRIPT.md](DEMO_SCRIPT.md) for the timed recording guide.
+After payment, use **Demo tools** to simulate an unavailable snack, review the blocked dairy substitute, and accept a valid replacement or request a refund. Open **View Decision Trace**, then **Sell** to see the store-ready state and revenue from actual recorded test orders.
 
 The buyer screens keep implementation details out of the way. Hashes, rule versions, and audit verification remain in the advanced Decision Trace receipt.
 
