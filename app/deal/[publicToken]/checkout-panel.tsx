@@ -1,12 +1,14 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 type CheckoutPanelProps = {
   publicToken: string;
   quoteHash: string;
   amountPaise: number;
+  accepted: boolean;
+  disabled?: boolean;
   payment: {
     stage: string;
     order: null | {
@@ -25,6 +27,7 @@ type CheckoutPanelProps = {
     };
     incident: null | {
       status: string;
+      acceptedAt?: string | null;
       explanation: string;
       replacement: {
         failedProduct: string;
@@ -52,7 +55,7 @@ function formatMoney(paise: number) {
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',
     currency: 'INR',
-    maximumFractionDigits: 0,
+    maximumFractionDigits: 2,
   }).format(paise / 100);
 }
 
@@ -80,6 +83,8 @@ export function CheckoutPanel({
   quoteHash,
   amountPaise,
   payment,
+  accepted,
+  disabled = false,
 }: CheckoutPanelProps) {
   const router = useRouter();
   const checkoutKey = useRef<string | null>(null);
@@ -88,11 +93,28 @@ export function CheckoutPanel({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
+  const [createdOrder, setCreatedOrder] = useState<CheckoutPanelProps['payment']['order']>(null);
+  const order = payment.order ?? createdOrder;
+  useEffect(() => {
+    if (!notice || payment.stage !== 'payment_pending') return;
+    let attempts = 0;
+    const timer = setInterval(() => { router.refresh(); if (++attempts >= 20) clearInterval(timer); }, 3000);
+    return () => clearInterval(timer);
+  }, [notice, payment.stage, router]);
+
   async function createOrder() {
     setBusy('create');
     setError('');
     checkoutKey.current ??= crypto.randomUUID();
     try {
+      if (!accepted) {
+        const approval = await fetch(`/api/public/deals/${publicToken}/accept`, {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ expectedQuoteHash: quoteHash }),
+        });
+        const body = await approval.json() as { error?: { message?: string } };
+        if (!approval.ok) throw new Error(body.error?.message ?? 'This offer could not be accepted. Refresh to review the latest price.');
+      }
       const response = await fetch(`/api/public/deals/${publicToken}/checkout`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -101,23 +123,26 @@ export function CheckoutPanel({
           idempotencyKey: checkoutKey.current,
         }),
       });
-      const result = (await response.json()) as { error?: { message?: string } };
-      if (!response.ok) throw new Error(result.error?.message ?? 'Checkout was not created.');
+      const result = await response.json() as { state?: { order: CheckoutPanelProps['payment']['order'] }; error?: { message?: string } };
+      if (!response.ok || !result.state?.order) throw new Error(result.error?.message ?? 'Checkout was not created.');
+      setCreatedOrder(result.state.order);
       router.refresh();
+      if (result.state.order.provider === 'razorpay') await openRazorpay(result.state.order);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Checkout was not created.');
+      router.refresh();
     } finally {
       setBusy('');
     }
   }
 
   async function captureDemo() {
-    if (!payment.order) return;
+    if (!order) return;
     setBusy('capture');
     setError('');
     try {
       const response = await fetch(
-        `/api/demo/payments/${encodeURIComponent(payment.order.providerOrderId)}/capture`,
+        `/api/demo/payments/${encodeURIComponent(order.providerOrderId)}/capture`,
         { method: 'POST' },
       );
       const result = (await response.json()) as { error?: { message?: string } };
@@ -130,9 +155,9 @@ export function CheckoutPanel({
     }
   }
 
-  async function openRazorpay() {
-    const order = payment.order;
-    if (!order?.checkoutKeyId) return;
+  async function openRazorpay(checkoutOrder = order) {
+    const order = checkoutOrder;
+    if (!order?.checkoutKeyId) { setError('Checkout is missing its provider key. Please refresh or check the local Razorpay configuration.'); return; }
     setBusy('razorpay');
     setError('');
     try {
@@ -143,23 +168,20 @@ export function CheckoutPanel({
         amount: order.amountPaise,
         currency: order.currency,
         name: 'Boli · The Good Batch',
-        description: 'Exact accepted corporate gifting quote',
+        description: 'Your Boli order',
         order_id: order.providerOrderId,
         handler: async (result: RazorpaySuccess) => {
-          const response = await fetch('/api/razorpay/checkout/verify', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(result),
-          });
-          if (!response.ok) {
-            const body = (await response.json()) as { error?: { message?: string } };
-            setError(body.error?.message ?? 'Checkout signature could not be verified.');
-            return;
-          }
-          setNotice('Checkout signature verified. Waiting for the captured-payment webhook.');
-          router.refresh();
+          try {
+            const response = await fetch('/api/razorpay/checkout/verify', {
+              method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(result),
+            });
+            const body = await response.json() as { error?: { message?: string } };
+            if (!response.ok) throw new Error(body.error?.message ?? 'We could not verify the payment response. Refresh status before retrying.');
+            setNotice('Payment response received. Confirming payment with Razorpay…');
+            router.refresh();
+          } catch (caught) { setError(caught instanceof Error ? caught.message : 'Please refresh payment status.'); }
         },
-        theme: { color: '#bf4f2c' },
+        theme: { color: '#183f32' },
       });
       checkout.open();
     } catch (caught) {
@@ -189,13 +211,28 @@ export function CheckoutPanel({
     }
   }
 
+  async function acceptReplacement() {
+    setBusy('replacement');
+    setError('');
+    try {
+      const response = await fetch(`/api/public/deals/${publicToken}/replacement/accept`, { method: 'POST' });
+      const result = (await response.json()) as { error?: { message?: string } };
+      if (!response.ok) throw new Error(result.error?.message ?? 'Replacement was not accepted.');
+      router.refresh();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Replacement was not accepted.');
+    } finally {
+      setBusy('');
+    }
+  }
+
   if (payment.stage === 'refunded') {
     return (
       <section className="checkout-panel checkout-panel-refunded">
         <p className="micro-label">Recovery complete</p>
-        <h3>Exactly one full refund processed.</h3>
+        <h3>Your refund has been processed.</h3>
         <p>
-          {formatMoney(payment.refund?.amountPaise ?? amountPaise)} returned under provider reference{' '}
+          {formatMoney(payment.refund?.amountPaise ?? amountPaise)} refunded. Reference:{' '}
           <code>{payment.refund?.providerRefundId}</code>.
         </p>
       </section>
@@ -205,17 +242,24 @@ export function CheckoutPanel({
   if (payment.incident) {
     return (
       <section className="checkout-panel checkout-panel-recovery">
-        <p className="micro-label">Constraint-safe recovery</p>
-        <h3>{payment.incident.replacement.failedProduct} was lost after payment.</h3>
+        <p className="micro-label">An update to your order</p>
+        <h3>{payment.incident.replacement.failedProduct} is no longer available.</h3>
         <p>{payment.incident.explanation}</p>
         <div className="recovery-comparison">
-          <div><span>Blocked</span><strong>{payment.incident.replacement.blockedSubstitute}</strong><small>Violates vegan lock</small></div>
+          <div><span>Blocked</span><strong>{payment.incident.replacement.blockedSubstitute}</strong><small>Does not meet your vegan requirement</small></div>
           <div><span>Offered</span><strong>{payment.incident.replacement.compliantReplacement}</strong><small>{payment.incident.replacement.buyerImpact}</small></div>
         </div>
         {payment.stage === 'replacement_offered' ? (
-          <button type="button" disabled={Boolean(busy)} onClick={declineReplacement}>
-            {busy === 'refund' ? 'Applying refund policy…' : 'Decline replacement & refund →'}
-          </button>
+          <div className="recovery-actions">
+            <button type="button" disabled={Boolean(busy)} onClick={acceptReplacement}>
+              {busy === 'replacement' ? 'Reserving replacement…' : 'Accept valid replacement'}
+            </button>
+            <button className="secondary-action" type="button" disabled={Boolean(busy)} onClick={declineReplacement}>
+              {busy === 'refund' ? 'Applying refund policy…' : payment.order?.provider === 'demo' ? 'Request simulated refund' : 'Request full refund'}
+            </button>
+          </div>
+        ) : payment.stage === 'replacement_accepted' ? (
+          <strong>Replacement accepted · no price or constraint changed.</strong>
         ) : (
           <strong>Refund reconciliation is in progress.</strong>
         )}
@@ -227,23 +271,21 @@ export function CheckoutPanel({
   if (payment.stage === 'paid') {
     return (
       <section className="checkout-panel checkout-panel-paid">
-        <p className="micro-label">Verified payment</p>
-        <h3>{formatMoney(amountPaise)} captured by signed webhook.</h3>
-        <p>Payment <code>{payment.providerPaymentId}</code> matches the exact order amount and currency.</p>
+        <p className="micro-label">Payment confirmed</p>
+        <h3>{formatMoney(amountPaise)} paid. Thank you.</h3>
+        <p>Your order is confirmed with The Good Batch.</p><details><summary>Payment reference</summary><code>{payment.providerPaymentId}</code></details>
       </section>
     );
   }
 
-  if (!payment.order) {
+  if (!order) {
     return (
       <section className="checkout-panel">
         <div>
-          <p className="micro-label">Separate money gate</p>
-          <h3>Create a Razorpay test order.</h3>
-          <p>Boli will recheck the accepted hash, policy, amount, and live inventory first.</p>
+          <p>{accepted ? "Your offer is accepted. Continue to complete payment." : "By continuing, you accept the items, delivery requirements and total shown above."}</p><small>Test checkout · no live charges</small>
         </div>
-        <button type="button" disabled={Boolean(busy)} onClick={createOrder}>
-          {busy === 'create' ? 'Reserving inventory…' : `Create checkout · ${formatMoney(amountPaise)} →`}
+        <button type="button" disabled={disabled || Boolean(busy)} onClick={createOrder}>
+          {busy === 'create' ? 'Reserving inventory…' : `Continue to payment · ${formatMoney(amountPaise)}`}
         </button>
         {error ? <p className="deal-room-error" role="alert">{error}</p> : null}
       </section>
@@ -254,19 +296,19 @@ export function CheckoutPanel({
     <section className="checkout-panel checkout-panel-pending">
       <div>
         <p className="micro-label">Order created · payment pending</p>
-        <h3>{formatMoney(payment.order.amountPaise)} · {payment.order.providerOrderId}</h3>
-        <p>The browser cannot mark this deal paid. Only a verified captured-payment webhook can.</p>
+        <h3>{formatMoney(order.amountPaise)}</h3>
+        <p>Finish checkout to confirm your order.</p>
       </div>
-      {payment.order.provider === 'demo' ? (
+      {order.provider === 'demo' ? (
         <button type="button" disabled={Boolean(busy)} onClick={captureDemo}>
           {busy === 'capture' ? 'Verifying signed webhook…' : 'Simulate verified test payment →'}
         </button>
       ) : (
-        <button type="button" disabled={Boolean(busy)} onClick={openRazorpay}>
+        <button type="button" disabled={Boolean(busy)} onClick={() => openRazorpay()}>
           {busy === 'razorpay' ? 'Opening Razorpay…' : 'Open Razorpay test checkout →'}
         </button>
       )}
-      {notice ? <p className="checkout-notice">{notice}</p> : null}
+      {notice ? <p className="checkout-notice" role="status">{notice}</p> : null}<button className="subtle-button" type="button" onClick={() => router.refresh()}>Refresh payment status</button>
       {error ? <p className="deal-room-error" role="alert">{error}</p> : null}
     </section>
   );

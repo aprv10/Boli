@@ -8,7 +8,7 @@ import {
 import { evaluateCommerceAction } from '@/src/domain/policies/commerce-policy';
 import { createQuoteFingerprints } from '@/src/domain/quoting/executable-quote';
 import { generateCorporateGiftingQuotes } from '@/src/domain/quoting/corporate-gifting-engine';
-import type { ConstraintCheck, QuoteOption } from '@/src/domain/quoting/types';
+import type { ConstraintCheck, QuoteOption, QuoteEngineResult } from '@/src/domain/quoting/types';
 import {
   loadDealQuotes,
   loadPublicDealRoom,
@@ -183,6 +183,9 @@ export async function submitBoundedCounteroffer(
     throw new QuoteWorkflowError('DEAL_NOT_FOUND', 'This Deal Room does not exist.', 404);
   }
   const sourceQuote = room.currentQuote;
+  if ((await loadDealCounteroffers(binding, room.deal.id)).length) {
+    throw new QuoteWorkflowError('NEGOTIATION_COMPLETE', 'This request has already been reviewed. You can accept the current offer or start a new buying request.', 409);
+  }
   if (!sourceQuote || sourceQuote.status !== 'merchant_approved') {
     throw new QuoteWorkflowError(
       'QUOTE_NOT_NEGOTIABLE',
@@ -201,7 +204,8 @@ export async function submitBoundedCounteroffer(
     throw new QuoteWorkflowError('QUOTE_EXPIRED', 'This quote has expired.', 410);
   }
 
-  const targetResult = generateCorporateGiftingQuotes(room.catalog, {
+  let targetResult = generateCorporateGiftingQuotes(room.catalog, {
+    selection: room.deal.selection,
     quantity: room.deal.quantity,
     maxUnitPaise: Math.min(input.targetUnitPaise, room.deal.maxUnitPaise),
     deliveryLocations: room.deal.deliveryLocations,
@@ -210,13 +214,41 @@ export async function submitBoundedCounteroffer(
     minimumMarginBps: room.policy.minimumMarginBps,
     now,
   });
+  // A real discount on unchanged items is derived from current costs and the
+  // margin floor. The language model supplies only the requested ceiling.
+  const productLines = sourceQuote.lines.filter(line => line.kind === 'product');
+  const liveProducts = productLines.map(line => room.catalog.find(product => product.id === line.productId));
+  const availableDays = Math.max(0, Math.ceil((Date.parse(`${room.deal.deadline}T23:59:59Z`) - Date.parse(now)) / 86_400_000));
+  let baselineResult = room.result;
+  if (liveProducts.length && liveProducts.every(product => product && product.availableQuantity >= sourceQuote.quantity && product.leadTimeDays <= availableDays)) {
+    const lines = sourceQuote.lines.map(line => ({ ...line, unitCostPaise: line.kind === 'product' ? room.catalog.find(product => product.id === line.productId)!.unitCostPaise : line.unitCostPaise }));
+    const cost = lines.reduce((sum, line) => sum + line.unitCostPaise, 0);
+    const floor = Math.ceil(cost * 10_000 / (10_000 - room.policy.minimumMarginBps));
+    const discountedTotal = Math.max(input.targetUnitPaise, floor);
+    if (discountedTotal > 0 && discountedTotal < sourceQuote.unitTotalPaise && discountedTotal <= room.deal.maxUnitPaise) {
+      const discount = sourceQuote.unitTotalPaise - discountedTotal;
+      const margin = Math.floor((discountedTotal - cost) * 10_000 / discountedTotal);
+      const option: QuoteOption = {
+        key: sourceQuote.optionKey, label: 'Same items, lower price', rationale: 'Same products with a discount calculated from current costs and the merchant’s minimum margin.',
+        lines: [...lines, { code: 'negotiated-discount', label: 'Order discount', kind: 'service', unitPricePaise: -discount, unitCostPaise: 0 }],
+        productUnitPaise: productLines.reduce((sum, line) => sum + line.unitPricePaise, 0),
+        serviceUnitPaise: lines.filter(line => line.kind === 'service').reduce((sum, line) => sum + line.unitPricePaise, 0) - discount,
+        unitTotalPaise: discountedTotal, orderTotalPaise: discountedTotal * sourceQuote.quantity,
+        unitCostPaise: cost, contributionMarginBps: margin, headroomPaise: room.deal.maxUnitPaise - discountedTotal,
+        checks: sourceQuote.checks.map(check => check.code === 'MERCHANT_MARGIN_FLOOR' ? { ...check, passed: margin >= room.policy.minimumMarginBps, observed: String(margin), required: `>=${room.policy.minimumMarginBps}` } : check.code === 'BUYER_UNIT_BUDGET' ? { ...check, observed: String(discountedTotal) } : check),
+      };
+      const appendOption = (result: QuoteEngineResult): QuoteEngineResult => ({ status: 'generated', options: [...(result.status === 'generated' ? result.options : []), option], evaluatedCombinations: result.evaluatedCombinations + 1, feasibleCombinations: (result.status === 'generated' ? result.feasibleCombinations : 0) + 1 });
+      baselineResult = appendOption(baselineResult);
+      if (discountedTotal <= input.targetUnitPaise) targetResult = { status: 'generated', options: [option], evaluatedCombinations: 1, feasibleCombinations: 1 };
+    }
+  }
   const decision = evaluateBoundedCounteroffer({
     sourceQuote,
     targetUnitPaise: input.targetUnitPaise,
     originalMaxUnitPaise: room.deal.maxUnitPaise,
     hardConstraints: room.deal.hardConstraints,
     targetResult,
-    baselineResult: room.result,
+    baselineResult,
     policy: room.policy,
   });
   const policyDecision = decision.proposedOption
@@ -269,7 +301,7 @@ export async function submitBoundedCounteroffer(
       quoteId: null,
       eventType: 'counteroffer_submitted',
       actorType: 'buyer' as const,
-      summary: `Buyer requested ${Math.round(input.targetUnitPaise / 100)} INR per kit against quote v${sourceQuote.version}.`,
+      summary: `Buyer requested ${input.targetUnitPaise / 100} INR per unit against quote v${sourceQuote.version}.`,
       data: {
         counterofferId,
         sourceQuoteHash: sourceQuote.quoteHash,
@@ -314,6 +346,9 @@ export async function submitBoundedCounteroffer(
   const audit = await prepareAuditBatch(binding, room.deal.id, auditDrafts);
 
   const statements: D1PreparedStatement[] = [
+    binding.prepare(`INSERT INTO negotiation_rounds (deal_id, source_quote_id, created_at)
+      VALUES (?, (SELECT id FROM quotes WHERE id = ? AND quote_hash = ? AND status = 'merchant_approved'), ?)`)
+      .bind(room.deal.id, sourceQuote.id, input.expectedQuoteHash, now),
     binding
       .prepare(
         `INSERT INTO counteroffers (
@@ -367,7 +402,12 @@ export async function submitBoundedCounteroffer(
     ...audit.statements,
     binding.prepare('UPDATE deals SET updated_at = ? WHERE id = ?').bind(now, room.deal.id),
   );
-  await binding.batch(statements);
+  try {
+    await binding.batch(statements);
+  } catch (error) {
+    if (/constraint|unique/i.test(String(error))) throw new QuoteWorkflowError('QUOTE_CHANGED', 'This request was already reviewed or the offer changed. Refresh to see the latest result.', 409);
+    throw error;
+  }
 
   const stored = (await loadDealCounteroffers(binding, room.deal.id)).find(
     (item) => item.id === counterofferId,
@@ -429,7 +469,7 @@ export async function approvePendingCounteroffer(
     targetUnitPaise: proposal.targetUnitPaise,
     proposedUnitPaise: proposal.proposedOption.unitTotalPaise,
     targetMet: proposal.proposedOption.unitTotalPaise <= proposal.targetUnitPaise,
-    concessionBps: Math.floor(
+    concessionBps: Math.ceil(
       ((sourceQuote.unitTotalPaise - proposal.proposedOption.unitTotalPaise) * 10_000) /
         sourceQuote.unitTotalPaise,
     ),
@@ -482,6 +522,7 @@ export async function approvePendingCounteroffer(
   ]);
 
   await binding.batch([
+    pendingDecisionGuard(binding, room.deal.merchantId, proposal.id, sourceQuote.id, 'approve', now),
     binding
       .prepare(
         `UPDATE quotes SET status = 'superseded'
@@ -524,4 +565,28 @@ async function loadPublicDealRoomByDeal(binding: D1Database, dealId: string) {
     .first<{ publicToken: string }>();
   if (!row || !quote) return undefined;
   return loadPublicDealRoom(binding, row.publicToken);
+}
+
+function pendingDecisionGuard(binding: D1Database, merchantId: string, counterofferId: string, sourceQuoteId: string, action: string, now: string) {
+  return binding.prepare(`INSERT INTO merchant_changes (id, merchant_id, kind, before_json, after_json, created_at)
+    VALUES (?, ?, 'counteroffer', (SELECT json_object('id', c.id, 'status', c.status) FROM counteroffers c
+      JOIN quotes q ON q.id=c.source_quote_id WHERE c.id=? AND c.status='merchant_approval_required'
+      AND q.id=? AND q.status='merchant_approved'), ?, ?)`)
+    .bind(crypto.randomUUID(), merchantId, counterofferId, sourceQuoteId, JSON.stringify({ action }), now);
+}
+
+export async function rejectPendingCounteroffer(binding: D1Database, dealId: string, counterofferId: string, now = new Date().toISOString()) {
+  const room = await loadPublicDealRoomByDeal(binding, dealId);
+  const proposal = (await loadDealCounteroffers(binding, dealId)).find(item => item.id === counterofferId);
+  if (!room || !proposal) throw new QuoteWorkflowError('NOT_FOUND', 'This request is unavailable.', 404);
+  if (proposal.status !== 'merchant_approval_required' || room.currentQuote?.id !== proposal.sourceQuoteId || room.currentQuote.status !== 'merchant_approved') throw new QuoteWorkflowError('REQUEST_CHANGED', 'This request has already been decided or the order changed. Refresh to see its status.', 409);
+  const summary = 'The merchant declined the price reduction. Your original offer is still available.';
+  const audit = await prepareAuditBatch(binding, dealId, [{ id: crypto.randomUUID(), quoteId: proposal.sourceQuoteId, eventType: 'counteroffer_rejected', actorType: 'merchant', summary, data: { counterofferId }, createdAt: now }]);
+  await binding.batch([
+    pendingDecisionGuard(binding, room.deal.merchantId, proposal.id, proposal.sourceQuoteId, 'reject', now),
+    binding.prepare("UPDATE counteroffers SET status='rejected', decision_summary=?, decided_at=? WHERE id=? AND status='merchant_approval_required'").bind(summary, now, proposal.id),
+    ...audit.statements,
+    binding.prepare('UPDATE deals SET updated_at=? WHERE id=?').bind(now, dealId),
+  ]);
+  return { rejected: true };
 }

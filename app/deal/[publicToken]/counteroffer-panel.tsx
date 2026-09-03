@@ -3,170 +3,50 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-type CounterofferPanelProps = {
-  publicToken: string;
-  quoteHash: string;
-  currentUnitPaise: number;
-  hardConstraints: string[];
-  disabled: boolean;
+export type NegotiationOutcome = {
+  status: string; targetUnitPaise: number; proposedUnitPaise: number | null;
+  sourceUnitPaise: number; message: string; summary: string;
+  changes: Array<{ label: string; before: number; after: number }>;
 };
+type Props = { publicToken: string; quoteHash: string; disabled: boolean; outcome: NegotiationOutcome | null };
+const money = (paise: number) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(paise / 100);
 
-type CounterofferResult = {
-  status: string;
-  proposedUnitPaise: number | null;
-  summary: string;
-  reasonCodes: string[];
-};
-
-function formatMoney(paise: number) {
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 0,
-  }).format(paise / 100);
-}
-
-export function CounterofferPanel({
-  publicToken,
-  quoteHash,
-  currentUnitPaise,
-  hardConstraints,
-  disabled,
-}: CounterofferPanelProps) {
+export function CounterofferPanel({ publicToken, quoteHash, disabled, outcome }: Props) {
   const router = useRouter();
-  const currentInr = Math.round(currentUnitPaise / 100);
-  const [targetInr, setTargetInr] = useState(
-    String(Math.max(100, currentInr - 50)),
-  );
-  const [message, setMessage] = useState(
-    'Please find the strongest lower-priced kit without changing our locked requirements.',
-  );
+  const [message, setMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState<CounterofferResult | null>(null);
+  const [sent, setSent] = useState(false);
   const [error, setError] = useState('');
-
   async function submit() {
-    const parsedTarget = Number(targetInr);
-    if (!Number.isSafeInteger(parsedTarget) || parsedTarget < 100) {
-      setError('Enter a whole-rupee target of at least ₹100.');
-      return;
-    }
-    if (parsedTarget >= currentInr) {
-      setError(`Your target must be below the current ₹${currentInr} per kit.`);
-      return;
-    }
-
-    setSubmitting(true);
-    setError('');
-    setResult(null);
+    setSubmitting(true); setError('');
     try {
-      const response = await fetch(
-        `/api/public/deals/${publicToken}/counteroffers`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            expectedQuoteHash: quoteHash,
-            targetUnitPaise: parsedTarget * 100,
-            buyerMessage: message,
-          }),
-        },
-      );
-      const body = (await response.json()) as {
-        counteroffer?: CounterofferResult;
-        error?: { message?: string };
-      };
-      if (!response.ok || !body.counteroffer) {
-        throw new Error(body.error?.message ?? 'Boli could not evaluate that proposal.');
-      }
-      setResult(body.counteroffer);
-      router.refresh();
-    } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : 'Boli could not evaluate that proposal.',
-      );
-    } finally {
-      setSubmitting(false);
-    }
+      const response = await fetch(`/api/public/deals/${publicToken}/counteroffers`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ expectedQuoteHash: quoteHash, buyerMessage: message }),
+      });
+      const body = await response.json() as { error?: { message?: string } };
+      if (!response.ok) throw new Error(body.error?.message ?? 'Your request could not be evaluated.');
+      setSent(true); router.refresh();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Please try again.'); router.refresh(); }
+    finally { setSubmitting(false); }
   }
-
-  return (
-    <section className="counteroffer-console" id="negotiate" aria-labelledby="counteroffer-title">
-      <div className="counteroffer-console-heading">
-        <div>
-          <span>Bounded negotiation</span>
-          <h3 id="counteroffer-title">Ask Boli for a better shape.</h3>
-        </div>
-        <strong>₹ only after policy</strong>
-      </div>
-
-      <p className="counteroffer-intro">
-        Choose a target. Boli may change the kit composition, but it cannot relax
-        your locked requirements or cross the merchant’s safety boundaries.
-      </p>
-
-      <div className="counteroffer-locked" aria-label="Protected requirements">
-        <span>Never negotiable</span>
-        {hardConstraints.length ? (
-          hardConstraints.map((constraint) => (
-            <strong key={constraint}>✓ {constraint.replace('-', ' ')}</strong>
-          ))
-        ) : (
-          <strong>Original mandate</strong>
-        )}
-      </div>
-
-      <div className="counteroffer-fields">
-        <label>
-          <span>Target per kit</span>
-          <div className="money-field">
-            <b>₹</b>
-            <input
-              inputMode="numeric"
-              min="100"
-              max={currentInr - 1}
-              step="1"
-              value={targetInr}
-              onChange={(event) => setTargetInr(event.target.value)}
-              disabled={disabled || submitting}
-              aria-label="Target price per kit in rupees"
-            />
-          </div>
-        </label>
-        <label>
-          <span>Buyer note</span>
-          <textarea
-            value={message}
-            onChange={(event) => setMessage(event.target.value)}
-            minLength={8}
-            maxLength={280}
-            disabled={disabled || submitting}
-          />
-        </label>
-      </div>
-
-      <button
-        type="button"
-        className="counteroffer-submit"
-        disabled={disabled || submitting || message.trim().length < 8}
-        onClick={submit}
-      >
-        {submitting ? 'Running price + policy checks…' : 'Evaluate counteroffer →'}
-      </button>
-
-      {result ? (
-        <div className={`counteroffer-result counteroffer-result-${result.status}`} role="status">
-          <span>{result.status.replaceAll('_', ' ')}</span>
-          <p>{result.summary}</p>
-          {result.proposedUnitPaise ? (
-            <strong>Proposed: {formatMoney(result.proposedUnitPaise)} / kit</strong>
-          ) : null}
-          <small>{result.reasonCodes.join(' · ').replaceAll('_', ' ')}</small>
-        </div>
-      ) : null}
-      {error ? <p className="counteroffer-error" role="alert">{error}</p> : null}
-    </section>
-  );
+  if (outcome) {
+    const pending = outcome.status === 'merchant_approval_required';
+    const rejected = outcome.status === 'rejected' || outcome.status === 'closed';
+    return <section className="order-negotiation negotiation-outcome" aria-live="polite">
+      <div className="shopping-section-heading"><h2>{pending ? 'Waiting for the merchant' : rejected ? 'Current offer kept' : 'Your negotiation result'}</h2><span className="status-pill">{pending ? 'Approval requested' : 'Reviewed'}</span></div>
+      <blockquote>“{outcome.message}”</blockquote>
+      <p>{outcome.summary}</p>
+      <dl className="negotiation-prices"><div><dt>Your target / unit</dt><dd>{money(outcome.targetUnitPaise)}</dd></div><div><dt>{pending ? 'Proposed' : rejected ? 'Current' : 'New'} price / unit</dt><dd>{money(outcome.proposedUnitPaise ?? outcome.sourceUnitPaise)}</dd></div></dl>
+      {outcome.changes.length ? <details open><summary>{pending ? 'Proposed changes' : 'What changed'}</summary><div className="actual-changes">{outcome.changes.map(change => <div key={change.label}><span>{change.label}</span><span>{money(change.before)} → <strong>{money(change.after)}</strong></span></div>)}</div></details> : null}
+      <small>One price request per order. {pending ? 'Refresh after the merchant reviews it, or continue with your current offer.' : 'Continuing to payment accepts the exact items and total shown in your order.'}</small>
+      {pending ? <button className="subtle-button" type="button" onClick={() => router.refresh()}>Refresh status</button> : null}
+    </section>;
+  }
+  return <details className="order-negotiation" id="negotiate">
+    <summary>Want a better price?</summary>
+    <p>Ask once for a lower price. Boli checks discounts and item alternatives against the store’s rules.</p>
+    <label htmlFor="negotiation-message">Your target price</label>
+    <div className="negotiation-prompt"><textarea id="negotiation-message" placeholder="Can you do ₹850 per kit?" value={message} onChange={event => setMessage(event.target.value)} maxLength={280} disabled={disabled || submitting || sent} /><button type="button" onClick={submit} disabled={disabled || submitting || sent || message.trim().length < 3}>{submitting ? 'Checking your request…' : sent ? 'Request saved' : 'Ask for a better price'}</button></div>
+    {error ? <p className="shopping-notice" role="alert">{error}</p> : null}
+  </details>;
 }

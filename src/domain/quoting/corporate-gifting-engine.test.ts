@@ -93,3 +93,126 @@ describe('generateCorporateGiftingQuotes', () => {
     );
   });
 });
+
+describe('distinct shopping options', () => {
+  const bottleRequest: QuoteRequest = {
+    selection: { mode: 'product', query: 'steel bottles' },
+    quantity: 50,
+    maxUnitPaise: 40_000,
+    deliveryLocations: ['Hyderabad'],
+    deadline: '2026-09-24',
+    hardConstraints: [],
+    now: '2026-09-03T00:00:00.000Z',
+  };
+
+  const signature = (option: { lines: { kind: string; productId?: string }[] }) =>
+    option.lines.filter(line => line.kind === 'product').map(line => line.productId).sort().join(':');
+  const days = (option: { checks: { code: string; observed: string }[] }) =>
+    Number(option.checks.find(check => check.code === 'LEAD_TIME_FEASIBLE')?.observed.replace('d', ''));
+
+  function sampleBottle(id: string, price: number, lead: number): CatalogProduct {
+    return { id, sku: id, name: `${id} Steel Bottle`, category: 'drinkware', tags: ['vegan', 'plastic-free'], unitPricePaise: price, unitCostPaise: Math.floor(price * .6), availableQuantity: 500, leadTimeDays: lead };
+  }
+
+  it('offers three different stocked bottles for the homepage demo request', () => {
+    const result = generateCorporateGiftingQuotes(catalog, bottleRequest);
+    expect(result.status).toBe('generated');
+    if (result.status !== 'generated') return;
+    expect(result.options).toHaveLength(3);
+    expect(new Set(result.options.map(signature)).size).toBe(3);
+    expect(result.options.map(days)).toEqual([5, 3, 1]);
+    expect(result.options.map(option => option.unitTotalPaise)).toEqual([24_174, 30_906, 38_454]);
+    expect(result.options.filter(option => option.recommended)).toHaveLength(1);
+    expect(result.options.every(option => option.unitTotalPaise <= bottleRequest.maxUnitPaise
+      && option.contributionMarginBps >= 2_200 && option.checks.every(check => check.passed))).toBe(true);
+  });
+
+  it.each([
+    { quantity: 30, cities: ['Chennai'], constraints: ['vegan'] as const },
+    { quantity: 80, cities: ['Hyderabad', 'Chennai'], constraints: ['vegan', 'plastic-free', 'multi-city'] as const },
+  ])('offers three different configurations for the $quantity-kit demo', ({ quantity, cities, constraints }) => {
+    const result = generateCorporateGiftingQuotes(catalog, {
+      ...bottleRequest, selection: { mode: 'kit', query: '' }, quantity,
+      maxUnitPaise: 90_000, deliveryLocations: cities, hardConstraints: [...constraints],
+    });
+    expect(result.status).toBe('generated');
+    if (result.status !== 'generated') return;
+    expect(result.options).toHaveLength(3);
+    expect(new Set(result.options.map(signature)).size).toBe(3);
+    expect(result.options.every(option => option.unitTotalPaise <= 90_000 && option.checks.every(check => check.passed))).toBe(true);
+  });
+
+  it('fills the remaining slots even when cheapest also wins the other rankings', () => {
+    const products = [sampleBottle('a', 10_000, 1), sampleBottle('b', 12_000, 2), sampleBottle('c', 15_000, 3)];
+    const result = generateCorporateGiftingQuotes(products, bottleRequest);
+    expect(result.status).toBe('generated');
+    if (result.status !== 'generated') return;
+    expect(result.options).toHaveLength(3);
+    expect(new Set(result.options.map(signature)).size).toBe(3);
+    expect(result.options[0]).toMatchObject({ label: 'Cheapest', recommended: true });
+    expect(result.options.some(option => option.label === 'Fastest')).toBe(false);
+    expect(result.options[2].label).toBe('Another option');
+  });
+
+  it('preserves the genuinely fastest card when it also wins the value score', () => {
+    const products = [sampleBottle('a', 10_000, 5), sampleBottle('b', 13_000, 3), sampleBottle('c', 15_000, 1)];
+    const result = generateCorporateGiftingQuotes(products, bottleRequest);
+    expect(result.status).toBe('generated');
+    if (result.status !== 'generated') return;
+    expect(result.options).toHaveLength(3);
+    expect(result.options.find(option => option.label === 'Fastest')).toMatchObject({ recommended: true });
+    expect(signature(result.options.find(option => option.label === 'Fastest')!)).toBe('c');
+  });
+
+  it('returns more than one option when every product has the same delivery time', () => {
+    const result = generateCorporateGiftingQuotes(
+      [sampleBottle('a', 10_000, 3), sampleBottle('b', 12_000, 3), sampleBottle('c', 15_000, 3)], bottleRequest,
+    );
+    expect(result.status).toBe('generated');
+    if (result.status !== 'generated') return;
+    expect(result.options).toHaveLength(3);
+    expect(result.options.filter(option => option.recommended)).toHaveLength(1);
+    expect(result.options.map(days)).toEqual([3, 3, 3]);
+  });
+
+  it('does not pad an exact product request with unrelated or duplicate bottles', () => {
+    const result = generateCorporateGiftingQuotes(catalog, {
+      ...bottleRequest, selection: { mode: 'product', query: 'Mizu Steel Bottle' },
+    });
+    expect(result.status).toBe('generated');
+    if (result.status !== 'generated') return;
+    expect(result.options).toHaveLength(1);
+    expect(signature(result.options[0])).toBe('prod-steel-bottle');
+  });
+
+  it('keeps two valid choices when a third exceeds the budget', () => {
+    const result = generateCorporateGiftingQuotes(catalog, { ...bottleRequest, maxUnitPaise: 32_000 });
+    expect(result.status).toBe('generated');
+    if (result.status !== 'generated') return;
+    expect(result.options).toHaveLength(2);
+    expect(new Set(result.options.map(signature)).size).toBe(2);
+    expect(result.options.every(option => option.unitTotalPaise <= 32_000)).toBe(true);
+  });
+
+  it('never fills an option slot with a stock, deadline, constraint or margin failure', () => {
+    const valid = sampleBottle('valid', 10_000, 1);
+    const result = generateCorporateGiftingQuotes([
+      valid,
+      { ...sampleBottle('out-of-stock', 12_000, 2), availableQuantity: 0 },
+      sampleBottle('too-late', 12_000, 30),
+      { ...sampleBottle('not-vegan', 12_000, 2), tags: [] },
+      { ...sampleBottle('low-margin', 12_000, 2), unitCostPaise: 12_000 },
+    ], { ...bottleRequest, hardConstraints: ['vegan'] });
+    expect(result.status).toBe('generated');
+    if (result.status !== 'generated') return;
+    expect(result.options).toHaveLength(1);
+    expect(signature(result.options[0])).toBe('valid');
+  });
+
+  it('is stable across catalog ordering and tied scores', () => {
+    const products = [sampleBottle('c', 12_000, 2), sampleBottle('a', 12_000, 2), sampleBottle('b', 12_000, 2)];
+    expect(generateCorporateGiftingQuotes(products, bottleRequest)).toEqual(
+      generateCorporateGiftingQuotes([...products].reverse(), bottleRequest),
+    );
+  });
+});

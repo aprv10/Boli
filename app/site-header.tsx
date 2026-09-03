@@ -1,37 +1,26 @@
-import Link from 'next/link';
+'use client';
 
-type SiteHeaderProps = {
-  active?: 'home' | 'buyer' | 'agent' | 'merchant';
-  context?: string;
-};
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { SlidingNavigation } from './components/sliding-navigation';
 
 const navigation = [
-  { key: 'home', label: 'Home', href: '/' },
-  { key: 'buyer', label: 'Start buying', href: '/request' },
-  { key: 'agent', label: 'AI buyer demo', href: '/agent' },
-  { key: 'merchant', label: 'Merchant workspace', href: '/merchant/deals' },
+  { key: 'buyer', label: 'Buy', href: '/' },
+  { key: 'sell', label: 'Sell', href: '/sell' },
+  { key: 'transactions', label: 'Transactions', href: '/transactions' },
 ] as const;
 
-export function SiteHeader({ active = 'home', context }: SiteHeaderProps) {
+export function SiteHeader() {
+  const pathname = usePathname() ?? '/';
+  const merchant = pathname === '/sell' || pathname.startsWith('/merchant/');
+  const active = merchant ? 'sell' : pathname.startsWith('/transactions') ? 'transactions' : 'buyer';
   return (
-    <header className="site-header">
-      <Link className="wordmark" href="/" aria-label="Boli home">
-        <span className="wordmark-stamp" aria-hidden="true">B</span>
-        <span>Boli</span>
+    <header className="site-header new-header">
+      <Link className={`wordmark new-wordmark bilingual-wordmark ${pathname === '/' ? 'wordmark-living' : ''}`} href="/" aria-label="Boli home">
+        <span className="wordmark-english" aria-hidden="true">boli<span className="wordmark-dot">.</span></span><span className="wordmark-hindi" lang="hi" aria-hidden="true">बोली<span className="wordmark-dot">.</span></span>
       </Link>
-      <nav className="site-navigation" aria-label="Primary navigation">
-        {navigation.map((item) => (
-          <Link
-            className={item.key === active ? 'site-nav-link site-nav-link-active' : 'site-nav-link'}
-            href={item.href}
-            aria-current={item.key === active ? 'page' : undefined}
-            key={item.key}
-          >
-            {item.label}
-          </Link>
-        ))}
-      </nav>
-      <span className="site-context">{context ?? 'Bulk buying, made clear'}</span>
+      <SlidingNavigation items={navigation} activeKey={active} label="Primary navigation" />
+      <span className="site-context">{merchant ? 'The Good Batch' : 'Your next good deal'}</span>
     </header>
   );
 }

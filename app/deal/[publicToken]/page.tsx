@@ -6,422 +6,85 @@ import { ensureDatabase } from '@/src/adapters/db/database';
 import { loadDealCounteroffers } from '@/src/application/counteroffer-workflow';
 import { loadPublicDealRoom } from '@/src/application/quote-workflow';
 import { loadPublicPaymentState } from '@/src/application/payment-workflow';
-import type { ConstraintCheck } from '@/src/domain/quoting/types';
-import { AcceptQuoteButton } from './accept-quote-button';
-import { CounterofferPanel } from './counteroffer-panel';
+import { CounterofferPanel, type NegotiationOutcome } from './counteroffer-panel';
 import { CheckoutPanel } from './checkout-panel';
-import { SiteHeader } from '../../site-header';
+import { findSafeUpsell } from '@/src/application/upsell-workflow';
+import { UpsellCard } from './upsell-card';
+import { FulfilmentFailureButton } from '../../merchant/deals/[dealId]/fulfilment-failure-button';
 
-type DealRoomPageProps = { params: Promise<{ publicToken: string }> };
-
-function formatMoney(paise: number) {
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 0,
-  }).format(paise / 100);
-}
-
-function formatMoment(timestamp: string) {
-  return new Intl.DateTimeFormat('en-IN', {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(timestamp));
-}
-
-function statusLabel(status: string) {
-  return status.replaceAll('_', ' ');
-}
-
-const checkLabels: Record<string, string> = {
-  BUYER_UNIT_BUDGET: 'Inside buyer budget',
-  BUYER_TARGET_PRICE: 'Buyer target respected',
-  BUYER_ORIGINAL_CAP: 'Original mandate respected',
-  MERCHANT_MARGIN_FLOOR: 'Merchant margin protected',
-  AUTOMATIC_CONCESSION_LIMIT: 'Inside automatic authority',
-  INVENTORY_AVAILABLE: 'Inventory available',
-  LEAD_TIME_FEASIBLE: 'Delivery timeline feasible',
-  HARD_CONSTRAINTS_PRESERVED: 'Locked requirements preserved',
+type Props = { params: Promise<{ publicToken: string }> };
+const money = (paise: number) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(paise / 100);
+const moment = (value: string) => new Date(value).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+const decisionLabels: Record<string, string> = {
+  request_received: 'Request saved', quote_approved: 'Offer authorized', counteroffer_submitted: 'Lower price requested',
+  counteroffer_evaluated: 'Merchant rules checked', counteroffer_approved: 'Merchant approved the offer',
+  counteroffer_rejected: 'Merchant declined the offer', quote_accepted: 'Buyer accepted the offer',
+  checkout_order_created: 'Checkout created', payment_captured: 'Payment confirmed',
+  fulfilment_substitution_blocked: 'Invalid substitute rejected', compliant_replacement_offered: 'Replacement offered',
+  compliant_replacement_accepted: 'Replacement accepted', replacement_declined: 'Refund requested',
+  refund_processed: 'Refund processed', constraint_safe_upsell_accepted: 'Add-on selected',
 };
+export const metadata: Metadata = { title: 'Your order — Boli', description: 'Review your items, request a better price and pay securely.', openGraph: { images: [] }, twitter: { images: [] } };
 
-function requirementNumber(value: string) {
-  const match = value.match(/^(?:<=|>=)(\d+)$/);
-  return match ? Number(match[1]) : null;
-}
-
-function presentCheck(check: ConstraintCheck) {
-  const label =
-    checkLabels[check.code] ??
-    (check.code.startsWith('HARD_CONSTRAINT_')
-      ? `${check.required.replace('-', ' ')} requirement locked`
-      : check.code.replaceAll('_', ' ').toLowerCase());
-  const threshold = requirementNumber(check.required);
-
-  if (
-    ['BUYER_UNIT_BUDGET', 'BUYER_TARGET_PRICE', 'BUYER_ORIGINAL_CAP'].includes(
-      check.code,
-    )
-  ) {
-    return {
-      label,
-      value: formatMoney(Number(check.observed)),
-      requirement:
-        threshold === null ? check.required : `limit ${formatMoney(threshold)}`,
-    };
-  }
-  if (
-    ['MERCHANT_MARGIN_FLOOR', 'AUTOMATIC_CONCESSION_LIMIT'].includes(
-      check.code,
-    )
-  ) {
-    return {
-      label,
-      value: `${(Number(check.observed) / 100).toFixed(1)}%`,
-      requirement:
-        threshold === null
-          ? check.required
-          : check.code === 'MERCHANT_MARGIN_FLOOR'
-            ? `minimum ${(threshold / 100).toFixed(1)}%`
-            : `authority ${(threshold / 100).toFixed(1)}%`,
-    };
-  }
-  if (check.code === 'INVENTORY_AVAILABLE') {
-    return {
-      label,
-      value: `${check.observed} units ready`,
-      requirement: threshold === null ? check.required : `${threshold} needed`,
-    };
-  }
-  if (check.code === 'LEAD_TIME_FEASIBLE') {
-    return {
-      label,
-      value: `${check.observed} lead time`,
-      requirement: `within ${check.required.replace('<=', '')}`,
-    };
-  }
-  if (check.code === 'HARD_CONSTRAINTS_PRESERVED') {
-    return {
-      label,
-      value: check.observed.replaceAll(',', ' · ').replaceAll('-', ' '),
-      requirement: 'unchanged',
-    };
-  }
-  return { label, value: check.observed, requirement: check.required };
-}
-
-export async function generateMetadata({ params }: DealRoomPageProps): Promise<Metadata> {
-  const { publicToken } = await params;
-  return {
-    title: `Buyer Deal Room ${publicToken.slice(0, 8).toUpperCase()} — Boli`,
-    description: 'Review and accept one exact, merchant-approved Boli quote.',
-    openGraph: { images: [] },
-    twitter: { images: [] },
-  };
-}
-
-export default async function DealRoomPage({ params }: DealRoomPageProps) {
+export default async function DealRoomPage({ params }: Props) {
   const { publicToken } = await params;
   await ensureDatabase(env.DB);
   const room = await loadPublicDealRoom(env.DB, publicToken);
-  if (!room) notFound();
   const payment = await loadPublicPaymentState(env.DB, publicToken);
-  if (!payment) notFound();
-  const counterofferHistory = await loadDealCounteroffers(env.DB, room.deal.id);
-
+  if (!room || !payment) notFound();
+  const history = await loadDealCounteroffers(env.DB, room.deal.id);
+  const upsell = await findSafeUpsell(env.DB, publicToken);
   const quote = room.currentQuote;
-  const isExpired = quote
-    ? Date.parse(quote.expiresAt) <= Date.parse(room.evaluatedAt)
-    : false;
   const accepted = quote?.status === 'buyer_accepted';
-  const previousQuote = quote
-    ? room.quoteHistory.find((item) => item.version === quote.version - 1)
-    : undefined;
-  const currentProducts = quote?.lines.filter((line) => line.kind === 'product') ?? [];
-  const previousProducts =
-    previousQuote?.lines.filter((line) => line.kind === 'product') ?? [];
-  const changedLineCodes = new Set(
-    quote?.lines
-      .filter((line) => {
-        if (line.kind === 'product') {
-          const position = currentProducts.findIndex((item) => item.code === line.code);
-          return previousProducts[position]?.code !== line.code;
-        }
-        const previousLine = previousQuote?.lines.find((item) => item.code === line.code);
-        return previousLine?.unitPricePaise !== line.unitPricePaise;
-      })
-      .map((line) => line.code) ?? [],
-  );
-  const changedProductCount = currentProducts.filter((line) =>
-    changedLineCodes.has(line.code),
-  ).length;
-  const perKitSavings = previousQuote && quote
-    ? previousQuote.unitTotalPaise - quote.unitTotalPaise
-    : 0;
-  const uniquePolicyChecks = quote
-    ? [...new Map(quote.checks.map((check) => [check.code, check])).values()]
-    : [];
-  const hasPreservedConstraintCheck = uniquePolicyChecks.some(
-    (check) => check.code === 'HARD_CONSTRAINTS_PRESERVED',
-  );
-  const policyChecks = hasPreservedConstraintCheck
-    ? uniquePolicyChecks.filter(
-        (check) => !check.code.startsWith('HARD_CONSTRAINT_'),
-      )
-    : uniquePolicyChecks;
-
-  return (
-    <main className="deal-room-shell">
-      <SiteHeader active="buyer" context="Your Deal Room" />
-      <div className="deal-progress-bar">
-        <Link href="/request">← Back to buyer workspace</Link>
-        <div className="deal-room-progress" aria-label="Deal progress">
-          <span className="complete">01 Mandate</span>
-          <span className="complete">02 Quote</span>
-          <span className={accepted ? 'complete' : 'active'}>03 Accept</span>
-          <span className={payment.stage === 'paid' || payment.stage === 'refunded' ? 'complete' : accepted ? 'active' : ''}>04 Pay</span>
-        </div>
+  const expired = Boolean(quote && Date.parse(quote.expiresAt) <= Date.parse(room.evaluatedAt));
+  const products = quote?.lines.filter(line => line.kind === 'product') ?? [];
+  const unit = room.deal.selection?.mode === 'product' ? 'item' : 'kit';
+  const latest = history[0];
+  let outcome: NegotiationOutcome | null = null;
+  if (latest) {
+    const source = room.quoteHistory.find(item => item.id === latest.sourceQuoteId);
+    const before = source?.lines ?? [];
+    const stale = latest.status === 'merchant_approval_required' && (accepted || quote?.id !== latest.sourceQuoteId);
+    const after = latest.status === 'rejected' || stale ? before : latest.proposedOption?.lines ?? before;
+    const codes = [...new Set([...before, ...after].map(line => line.code))];
+    outcome = {
+      status: stale ? 'closed' : latest.status, targetUnitPaise: latest.targetUnitPaise, proposedUnitPaise: latest.status === 'rejected' || stale ? null : latest.proposedOption?.unitTotalPaise ?? null,
+      sourceUnitPaise: source?.unitTotalPaise ?? quote?.unitTotalPaise ?? 0, message: latest.buyerMessage, summary: stale ? 'This price request is closed because you accepted or changed the offer. The order total shown here is the one that applies.' : latest.decisionSummary,
+      changes: codes.map(code => ({ label: after.find(line => line.code === code)?.label ?? before.find(line => line.code === code)!.label, before: before.find(line => line.code === code)?.unitPricePaise ?? 0, after: after.find(line => line.code === code)?.unitPricePaise ?? 0 })).filter(change => change.before !== change.after),
+    };
+  }
+  const hasSnack = products.some(line => room.catalog.find(product => product.id === line.productId)?.category === 'snack');
+  const leadDays = Math.max(0, ...(quote?.checks.filter(check => ['LEAD_TIME_FEASIBLE', 'UPSELL_DELIVERY_FEASIBLE'].includes(check.code)).map(check => Number(check.observed.replace('d', ''))) ?? []));
+  return <main className="new-shell order-shell">
+    <div className="order-breadcrumb"><Link href="/request">← New request</Link><span>The Good Batch · Order {room.deal.id.slice(0, 8).toUpperCase()}</span></div>
+    <header className="order-heading"><div><p className="eyebrow">Your order</p><h1>{payment.stage === 'refunded' ? 'Refund complete.' : accepted ? 'Your items. All in one place.' : 'A closer look at your deal.'}</h1></div><span className="status-pill">{payment.stage === 'paid' ? 'Paid' : payment.stage === 'refunded' ? 'Refunded' : accepted ? 'Accepted' : expired ? 'Offer expired' : 'Ready to review'}</span></header>
+    {!quote ? <section className="shopping-empty"><h2>No offer selected yet</h2><p>Start a new request to see items available from the store.</p><Link href="/request">Find products →</Link></section> :
+    <div className="order-layout">
+      <div className="order-main">
+        <section className="order-items">
+          <div className="shopping-section-heading"><h2>{unit === 'kit' ? 'Inside each kit' : 'Your items'}</h2><span>{quote.quantity} {unit}s</span></div>
+          <div className="order-line-labels"><span>Product</span><span>Per {unit}</span><span>Line total</span></div>
+          {products.map(line => <div className="order-product-row" key={line.code}><div><strong>{line.label}</strong><small>{line.code} · {quote.quantity} units</small></div><span>{money(line.unitPricePaise)}</span><strong>{money(line.unitPricePaise * quote.quantity)}</strong></div>)}
+          <div className="order-delivery"><div><span>Deliver to</span><strong>{room.deal.deliveryLocations.join(' · ')}</strong></div><div><span>Requested by</span><strong>{new Date(room.deal.deadline + 'T12:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'long' })}</strong></div><div><span>Catalog lead time</span><strong>{leadDays} days</strong></div></div>
+          {room.deal.hardConstraints.length ? <div className="constraint-tags">{room.deal.hardConstraints.map(constraint => <span key={constraint}>✓ {constraint.replaceAll('-', ' ')}</span>)}</div> : null}
+          <details className="request-receipt"><summary>Your original request</summary><p>{room.deal.rawText}</p><p>Budget: {money(room.deal.maxUnitPaise)} / {unit}</p></details>
+        </section>
+        {(!accepted || outcome) ? <CounterofferPanel publicToken={publicToken} quoteHash={quote.quoteHash} disabled={expired || accepted} outcome={outcome} /> : null}
+        {!accepted && !expired && upsell && latest?.status !== 'merchant_approval_required' ? <UpsellCard publicToken={publicToken} quoteHash={quote.quoteHash} suggestion={upsell} /> : null}
+        <details className="decision-trace" id="decision-trace">
+          <summary>View Decision Trace <span>{room.auditVerified ? 'Integrity verified' : 'Integrity warning'}</span></summary>
+          <p>This records actual decisions and who made them. Quote versions and previous events are retained.</p>
+          <ol>{[...room.events].sort((a, b) => a.sequence - b.sequence).map(event => <li key={event.id}><div><strong>{decisionLabels[event.eventType] ?? event.eventType.replaceAll('_', ' ')}</strong><time>{moment(event.createdAt)} · {event.actorType}</time></div><p>{event.summary}</p></li>)}</ol>
+          <details><summary>Technical receipt</summary><p>Quote version {quote.version} · Rules version {quote.policyVersion} · Margin {(quote.contributionMarginBps / 100).toFixed(2)}%</p><p>Quote fingerprint</p><code>{quote.quoteHash}</code><p>Audit head</p><code>{room.auditHeadHash}</code><ul>{quote.checks.map((check, index) => <li key={index}>{check.passed ? '✓' : '–'} {check.code}: {check.observed} (required: {check.required})</li>)}</ul></details>
+        </details>
+        {accepted && payment.stage === 'paid' && room.deal.hardConstraints.includes('vegan') && hasSnack ? <details className="failure-demo-card"><summary>Demo tools</summary><h3>Simulate an unavailable snack</h3><p>This changes the paid order’s fulfillment state. Boli will reject a dairy substitute and look for a vegan replacement.</p><FulfilmentFailureButton dealId={room.deal.id} disabled={false} /></details> : null}
       </div>
-
-      <section className="deal-room-hero">
-        <div>
-          <p className="eyebrow"><span aria-hidden="true">✦</span> Your approved quote</p>
-          <h1>Review the deal.<br /><em>Then decide.</em></h1>
-        </div>
-        <div className="deal-room-mandate">
-          <span>Buyer mandate</span>
-          <p>{room.deal.rawText}</p>
-          <div>
-            <strong>{room.deal.quantity} kits</strong>
-            <strong>{formatMoney(room.deal.maxUnitPaise)} max / kit</strong>
-            <strong>{room.deal.deliveryLocations.join(' · ')}</strong>
-          </div>
-        </div>
-      </section>
-
-      {!quote ? (
-        <section className="deal-room-waiting">
-          <span aria-hidden="true">◇</span>
-          <h2>The merchant is still shaping your quote.</h2>
-          <p>Your mandate is saved. Nothing can be accepted or charged until an exact quote is approved.</p>
-        </section>
-      ) : (
-        <section className="deal-room-grid">
-          <article className="executable-quote">
-            <div className="executable-quote-topline">
-              <div>
-                <span>Quote v{quote.version} · {quote.label}</span>
-                <h2>{formatMoney(quote.unitTotalPaise)} <small>/ kit</small></h2>
-              </div>
-              <span className={`quote-state quote-state-${quote.status}`}>
-                {isExpired && !accepted ? 'expired' : statusLabel(quote.status)}
-              </span>
-            </div>
-
-            <p className="executable-rationale">{quote.rationale}</p>
-
-            <section className="deal-decision-deck" aria-label="Quote decision">
-              <div>
-                <span>{accepted ? 'Decision recorded' : 'Ready for your decision'}</span>
-                <strong>{formatMoney(quote.orderTotalPaise)} exact total</strong>
-                <p>
-                  {accepted
-                    ? `Acceptance is bound to quote v${quote.version} and its fingerprint.`
-                    : 'Accept this exact version, or ask Boli to find a different policy-safe shape.'}
-                </p>
-              </div>
-              <div className="deal-decision-actions">
-                {!accepted && !isExpired ? <a href="#negotiate">Negotiate</a> : null}
-                {isExpired && !accepted ? (
-                  <div className="deal-room-expired">
-                    <strong>Acceptance blocked</strong>
-                    This quote expired. The merchant must issue a new version.
-                  </div>
-                ) : (
-                  <AcceptQuoteButton
-                    publicToken={publicToken}
-                    quoteHash={quote.quoteHash}
-                    disabled={isExpired}
-                    accepted={accepted}
-                  />
-                )}
-              </div>
-            </section>
-
-            {previousQuote && perKitSavings > 0 ? (
-              <section className="quote-delta" aria-label="What changed in this quote">
-                <div className="quote-delta-version">
-                  <span>v{previousQuote.version}</span>
-                  <i aria-hidden="true">→</i>
-                  <strong>v{quote.version}</strong>
-                </div>
-                <div>
-                  <span>Price movement</span>
-                  <strong>{formatMoney(perKitSavings)} less / kit</strong>
-                  <small>{formatMoney(perKitSavings * quote.quantity)} saved on this order</small>
-                </div>
-                <div>
-                  <span>Composition</span>
-                  <strong>{changedProductCount} {changedProductCount === 1 ? 'item' : 'items'} changed</strong>
-                  <small>Services recalculated from the new kit</small>
-                </div>
-                <div>
-                  <span>Buyer mandate</span>
-                  <strong>Every lock preserved</strong>
-                  <small>{room.deal.hardConstraints.length} non-negotiable requirements</small>
-                </div>
-              </section>
-            ) : null}
-
-            <div className="quote-detail-heading">
-              <div><span>Kit composition</span><h3>Inside every kit</h3></div>
-              <small>{currentProducts.length} products · {quote.lines.length - currentProducts.length} services</small>
-            </div>
-
-            <div className="executable-lines executable-product-lines">
-              {currentProducts.map((line) => (
-                <div className={changedLineCodes.has(line.code) ? 'line-changed' : ''} key={line.code}>
-                  <span>{changedLineCodes.has(line.code) ? `Changed in v${quote.version}` : 'Product'}</span>
-                  <p>{line.label}</p>
-                  <strong>{formatMoney(line.unitPricePaise)}</strong>
-                </div>
-              ))}
-            </div>
-
-            <details className="service-costs">
-              <summary>
-                <span>Services & operational costs</span>
-                <strong>
-                  {formatMoney(
-                    quote.lines
-                      .filter((line) => line.kind === 'service')
-                      .reduce((total, line) => total + line.unitPricePaise, 0),
-                  )} / kit
-                </strong>
-              </summary>
-              <div>
-                {quote.lines.filter((line) => line.kind === 'service').map((line) => (
-                  <p key={line.code}>
-                    <span>{line.label}</span>
-                    <strong>{formatMoney(line.unitPricePaise)}</strong>
-                  </p>
-                ))}
-              </div>
-            </details>
-
-            <dl className="executable-totals">
-              <div><dt>Quantity</dt><dd>{quote.quantity}</dd></div>
-              <div><dt>Merchant margin</dt><dd>{(quote.contributionMarginBps / 100).toFixed(1)}%</dd></div>
-              <div><dt>Valid until</dt><dd>{formatMoment(quote.expiresAt)}</dd></div>
-              <div className="executable-grand-total"><dt>Exact order total</dt><dd>{formatMoney(quote.orderTotalPaise)}</dd></div>
-            </dl>
-
-            <details className="quote-technical-details">
-              <summary>Quote and approval details</summary>
-              <div className="quote-identity">
-                <div>
-                  <span>Quote fingerprint · SHA-256</span>
-                  <code>{quote.quoteHash}</code>
-                </div>
-                <p>The merchant approval and your acceptance both point to this exact fingerprint.</p>
-              </div>
-            </details>
-
-            {accepted ? (
-              <CheckoutPanel
-                publicToken={publicToken}
-                quoteHash={quote.quoteHash}
-                amountPaise={quote.orderTotalPaise}
-                payment={{
-                  stage: payment.stage,
-                  order: payment.order,
-                  providerPaymentId: payment.payment?.providerPaymentId ?? null,
-                  refund: payment.refund,
-                  incident: payment.incident,
-                }}
-              />
-            ) : null}
-
-            {!accepted ? (
-              <CounterofferPanel
-                publicToken={publicToken}
-                quoteHash={quote.quoteHash}
-                currentUnitPaise={quote.unitTotalPaise}
-                hardConstraints={room.deal.hardConstraints}
-                disabled={isExpired}
-              />
-            ) : null}
-
-          </article>
-
-          <aside className="deal-room-proof">
-            <section className="deal-safety-summary">
-              <p className="micro-label">Checked by Boli</p>
-              <h2>Why this quote is safe</h2>
-              <div className="deal-room-checks">
-                {policyChecks.slice(0, 4).map((check) => {
-                  const presented = presentCheck(check);
-                  return (
-                    <div key={check.code}>
-                      <span aria-hidden="true">✓</span>
-                      <p><strong>{presented.label}</strong>{presented.value}</p>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-
-            <details className="deal-proof-details">
-              <summary>Audit and technical details <span>{room.auditVerified ? 'Verified' : 'Review'}</span></summary>
-              <div className="deal-proof-detail-body">
-                <section className={`audit-integrity ${room.auditVerified ? 'verified' : 'unverified'}`}>
-                  <div className="audit-integrity-heading">
-                    <p className="micro-label">Cryptographic receipt</p>
-                    <span>{room.auditVerified ? 'Chain verified' : 'Integrity warning'}</span>
-                  </div>
-                  <h2>Every decision leaves a fingerprint.</h2>
-                  <p>Each action commits to the one before it. Editing an amount, approval, or actor would break the chain.</p>
-                  <dl>
-                    <div><dt>Policy</dt><dd>v{quote.policyVersion}</dd></div>
-                    <div><dt>Events sealed</dt><dd>{room.events.length}</dd></div>
-                    <div><dt>Ledger head</dt><dd><code>{room.auditHeadHash.slice(0, 18)}…</code></dd></div>
-                  </dl>
-                </section>
-                <section className="deal-room-timeline">
-                  <p className="micro-label">Append-only activity</p>
-                  <h2>Decision trail</h2>
-                  {room.events.map((event) => (
-                    <article key={event.id}>
-                      <span>{String(event.sequence).padStart(2, '0')}</span>
-                      <div><p>{event.summary}</p><small>{event.actorType} · {formatMoment(event.createdAt)}</small><code className="event-fingerprint">{event.eventHash.slice(0, 12)}…</code></div>
-                    </article>
-                  ))}
-                </section>
-                <section className="quote-version-history">
-                  <p className="micro-label">Quote history</p>
-                  {room.quoteHistory.map((item) => (
-                    <div key={item.id}><strong>v{item.version} · {item.label}</strong><span>{statusLabel(item.status)}</span><code>{item.quoteHash.slice(0, 12)}…</code></div>
-                  ))}
-                </section>
-                {counterofferHistory.length ? (
-                  <section className="deal-room-negotiation-history">
-                    <p className="micro-label">Negotiation history</p>
-                    <h2>Every ask, bounded</h2>
-                    {counterofferHistory.map((counteroffer) => (
-                      <article key={counteroffer.id}>
-                        <div><strong>{formatMoney(counteroffer.targetUnitPaise)} target</strong><span>{statusLabel(counteroffer.status)}</span></div>
-                        <p>{counteroffer.decisionSummary}</p>
-                        <small>{counteroffer.reasonCodes.join(' · ').replaceAll('_', ' ')}</small>
-                      </article>
-                    ))}
-                  </section>
-                ) : null}
-              </div>
-            </details>
-          </aside>
-        </section>
-      )}
-    </main>
-  );
+      <aside className="order-summary">
+        <h2>Order summary</h2>
+        <dl><div><dt>Products × {quote.quantity}</dt><dd>{money(products.reduce((sum, line) => sum + line.unitPricePaise, 0) * quote.quantity)}</dd></div>{quote.lines.filter(line => line.kind === 'service').map(line => <div key={line.code}><dt>{line.label}</dt><dd>{money(line.unitPricePaise * quote.quantity)}</dd></div>)}<div className="summary-total"><dt>Total</dt><dd>{money(quote.orderTotalPaise)}</dd></div><div><dt>Per {unit}</dt><dd>{money(quote.unitTotalPaise)}</dd></div></dl>
+        {expired && !accepted ? <p className="shopping-notice">This offer has expired. <Link href="/request">Start a new request</Link> for current pricing.</p> : <CheckoutPanel key={quote.quoteHash} publicToken={publicToken} quoteHash={quote.quoteHash} amountPaise={quote.orderTotalPaise} accepted={accepted} disabled={expired && !accepted} payment={{ stage: payment.stage, order: payment.order, providerPaymentId: payment.payment?.providerPaymentId ?? null, refund: payment.refund, incident: payment.incident }} />}
+        {!accepted ? <p className="offer-validity">Offer valid until {moment(quote.expiresAt)}.</p> : null}
+      </aside>
+    </div>}
+  </main>;
 }

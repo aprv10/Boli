@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import './agent.css';
-import { SiteHeader } from '../site-header';
 
 const initialBrief =
   'Buy 120 vegan, plastic-free welcome kits below ₹900 each, add our logo, split delivery between Bengaluru and Pune, and deliver by Friday.';
@@ -194,8 +193,6 @@ export default function AgentBuyerPage() {
 
   return (
     <main className="agent-surface">
-      <SiteHeader active="agent" context="Viewing as AI buyer" />
-
       <section className="agent-intro">
         <p><span>✦</span> Guided AI buyer demo</p>
         <h1>Watch an AI buyer<br /><em>build a deal safely.</em></h1>

@@ -27,6 +27,7 @@ export type DealPaymentState = {
     | 'payment_pending'
     | 'paid'
     | 'replacement_offered'
+    | 'replacement_accepted'
     | 'buyer_declined'
     | 'refund_pending'
     | 'refunded';
@@ -67,6 +68,7 @@ export type DealPaymentState = {
       buyerImpact: string;
     };
     createdAt: string;
+    acceptedAt: string | null;
   };
 };
 
@@ -115,6 +117,7 @@ function paymentStage(state: Omit<DealPaymentState, 'stage'>): DealPaymentState[
     return 'refund_pending';
   }
   if (state.incident?.status === 'buyer_declined') return 'buyer_declined';
+  if (state.incident?.acceptedAt) return 'replacement_accepted';
   if (state.incident?.status === 'replacement_offered') return 'replacement_offered';
   if (state.payment?.status === 'captured' || state.order?.status === 'paid') return 'paid';
   if (state.order) return 'payment_pending';
@@ -159,7 +162,7 @@ export async function loadDealPaymentState(
   const incidentRow = await binding
     .prepare(
       `SELECT id, status, failure_code AS failureCode, explanation,
-        replacement_json AS replacementJson, created_at AS createdAt
+        replacement_json AS replacementJson, accepted_at AS acceptedAt, created_at AS createdAt
        FROM fulfilment_incidents WHERE deal_id = ? LIMIT 1`,
     )
     .bind(dealId)
@@ -174,6 +177,7 @@ export async function loadDealPaymentState(
           DealPaymentState['incident']
         >['replacement'],
         createdAt: incidentRow.createdAt,
+        acceptedAt: incidentRow.acceptedAt,
       }
     : null;
   const withoutStage = { order: order ?? null, payment: payment ?? null, refund: refund ?? null, incident };

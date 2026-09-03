@@ -43,6 +43,7 @@ export type DealQuoteWorkspace = {
     publicToken: string;
     createdAt: string;
     rawText: string;
+    selection?: { mode: 'kit' | 'product'; query: string };
     quantity: number;
     maxUnitPaise: number;
     deadline: string;
@@ -181,6 +182,7 @@ export async function loadDealQuoteWorkspace(
       maxUnitPaise: purchaseRequirements.maxUnitPaise,
       deliveryLocationsJson: purchaseRequirements.deliveryLocationsJson,
       deadline: purchaseRequirements.deadline,
+      selectionJson: purchaseRequirements.selectionJson,
       agentProvider: agentRuns.provider,
       agentModel: agentRuns.model,
       agentReviewStatus: intentAgentRuns.reviewStatus,
@@ -214,16 +216,18 @@ export async function loadDealQuoteWorkspace(
     tags: JSON.parse(product.tagsJson) as string[],
     unitPricePaise: product.unitPricePaise,
     unitCostPaise: product.unitCostPaise,
-    availableQuantity: product.availableQuantity,
+    availableQuantity: Math.max(0, product.availableQuantity - product.reservedQuantity),
     leadTimeDays: product.leadTimeDays,
   }));
   const hardConstraints = JSON.parse(record.constraintsJson) as HardConstraint[];
   const deliveryLocations = JSON.parse(record.deliveryLocationsJson) as string[];
   const policy = await loadActiveMerchantPolicy(binding, record.merchantId);
+  const selection = record.selectionJson ? JSON.parse(record.selectionJson) as { mode: 'kit' | 'product'; query: string } : undefined;
 
   return {
     deal: {
       ...record,
+      selection,
       hardConstraints,
       deliveryLocations,
       agentInterpretation:
@@ -248,6 +252,7 @@ export async function loadDealQuoteWorkspace(
     policy,
     catalog,
     result: generateCorporateGiftingQuotes(catalog, {
+      selection,
       quantity: record.quantity,
       maxUnitPaise: record.maxUnitPaise,
       deliveryLocations,
@@ -279,6 +284,7 @@ export async function approveQuoteOption(
   dealId: string,
   optionKey: QuoteOption['key'],
   now = new Date().toISOString(),
+  actorType: 'merchant' | 'system' = 'merchant',
 ) {
   const workspace = await loadDealQuoteWorkspace(binding, dealId, now);
   if (!workspace) {
@@ -385,8 +391,8 @@ export async function approveQuoteOption(
       id: crypto.randomUUID(),
       quoteId,
       eventType: 'quote_approved',
-      actorType: 'merchant',
-      summary: `Merchant approved quote v${version} · ${approvedOption.label}.`,
+      actorType,
+      summary: actorType === 'system' ? `Boli authorized ${approvedOption.label} under the merchant's rules.` : `Merchant approved quote v${version} · ${approvedOption.label}.`,
       data: {
         quoteHash,
         version,
@@ -414,7 +420,9 @@ export async function approveQuoteOption(
           checks_json, quantity, unit_total_paise, order_total_paise,
           unit_cost_paise, contribution_margin_bps, policy_version, intent_hash, quote_hash,
           status, expires_at, created_at, approved_at, accepted_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ) VALUES (?, (SELECT d.id FROM deals d WHERE d.id = ? AND NOT EXISTS (
+          SELECT 1 FROM quotes accepted WHERE accepted.deal_id = d.id AND accepted.status = 'buyer_accepted'
+        )), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
           'merchant_approved', ?, ?, ?, NULL)`,
       )
       .bind(

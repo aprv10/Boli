@@ -17,6 +17,7 @@ export type CatalogProduct = {
 };
 
 export type QuoteRequest = {
+  selection?: { mode: 'kit' | 'product'; query: string };
   quantity: number;
   maxUnitPaise: number;
   deliveryLocations: string[];
@@ -44,6 +45,7 @@ export type ConstraintCheck = {
 
 export type QuoteOption = {
   key: 'best-value' | 'balanced' | 'premium-under-cap';
+  recommended?: boolean;
   label: string;
   rationale: string;
   lines: QuoteLine[];

@@ -3,11 +3,12 @@ import { z } from 'zod';
 import { ensureDatabase } from '@/src/adapters/db/database';
 import { submitBoundedCounteroffer } from '@/src/application/counteroffer-workflow';
 import { QuoteWorkflowError } from '@/src/application/quote-workflow';
+import { interpretNegotiationRequest, UnclearNegotiationTarget } from '@/src/application/agent/mistral-negotiation';
 
 const inputSchema = z.object({
   expectedQuoteHash: z.string().regex(/^[a-f0-9]{64}$/),
-  targetUnitPaise: z.number().int().min(10_000).max(10_000_000),
-  buyerMessage: z.string().trim().min(8).max(280),
+  targetUnitPaise: z.number().int().min(100).max(10_000_000).optional(),
+  buyerMessage: z.string().trim().min(3).max(280),
 });
 
 type RouteContext = { params: Promise<{ publicToken: string }> };
@@ -29,10 +30,21 @@ export async function POST(request: Request, { params }: RouteContext) {
 
   try {
     const { publicToken } = await params;
+    const interpreted = parsed.data.targetUnitPaise
+      ? { targetUnitPaise: parsed.data.targetUnitPaise, condition: null, interpreter: 'structured' as const }
+      : await interpretNegotiationRequest({
+          message: parsed.data.buyerMessage,
+          apiKey: env.MISTRAL_API_KEY ?? process.env.MISTRAL_API_KEY,
+        });
     const result = await submitBoundedCounteroffer(
       env.DB,
       publicToken,
-      parsed.data,
+      {
+        expectedQuoteHash: parsed.data.expectedQuoteHash,
+        targetUnitPaise: interpreted.targetUnitPaise,
+        buyerMessage: parsed.data.buyerMessage,
+        sourceKind: 'natural_language',
+      },
     );
     return Response.json({
       counteroffer: {
@@ -53,6 +65,12 @@ export async function POST(request: Request, { params }: RouteContext) {
             status: result.quote.status,
           }
         : null,
+      interpretation: {
+        provider: interpreted.interpreter,
+        targetUnitPaise: interpreted.targetUnitPaise,
+        condition: interpreted.condition,
+        authority: 'LANGUAGE_ONLY',
+      },
     });
   } catch (error) {
     if (error instanceof QuoteWorkflowError) {
@@ -61,6 +79,7 @@ export async function POST(request: Request, { params }: RouteContext) {
         { status: error.status },
       );
     }
-    throw error;
+    if (error instanceof UnclearNegotiationTarget) return Response.json({ error: { code: 'TARGET_UNCLEAR', message: 'Please enter one price per item, for example “₹250 per bottle”.' } }, { status: 422 });
+    return Response.json({ error: { code: 'NEGOTIATION_UNAVAILABLE', message: 'We could not confirm the result. Refresh this order before trying again.' } }, { status: 500 });
   }
 }

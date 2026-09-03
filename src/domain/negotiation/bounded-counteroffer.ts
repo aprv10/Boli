@@ -127,12 +127,12 @@ export function evaluateBoundedCounteroffer({
       ],
       reasonCodes: ['NO_LOWER_POLICY_SAFE_CONFIGURATION'],
       summary:
-        'No lower-priced configuration preserves the buyer constraints and merchant margin floor.',
+        'No lower-priced offer preserves the requested items or a valid alternative within the merchant’s minimum margin. The current offer is unchanged.',
     };
   }
 
   const targetMet = proposedOption.unitTotalPaise <= targetUnitPaise;
-  const concessionBps = Math.floor(
+  const concessionBps = Math.ceil(
     ((sourceQuote.unitTotalPaise - proposedOption.unitTotalPaise) * 10_000) /
       sourceQuote.unitTotalPaise,
   );
@@ -182,8 +182,8 @@ export function evaluateBoundedCounteroffer({
       checks,
       reasonCodes: ['AUTOMATIC_CONCESSION_LIMIT_EXCEEDED'],
       summary: targetMet
-        ? 'A safe configuration meets the buyer target, but its concession exceeds Boli’s automatic authority.'
-        : 'The lowest safe counteroffer exceeds Boli’s automatic authority and needs merchant approval.',
+        ? 'This offer meets your target, but the reduction needs merchant approval. Your current offer stays available while you wait.'
+        : 'A lower offer is available above your target. The reduction needs merchant approval; your current offer is unchanged until then.',
     };
   }
 
@@ -198,7 +198,7 @@ export function evaluateBoundedCounteroffer({
       checks,
       reasonCodes: ['BUYER_TARGET_BELOW_SAFE_FLOOR'],
       summary:
-        'The buyer target is below the safe floor, so Boli issued the lowest policy-safe counteroffer.',
+        'Your target is below the lowest eligible offer. This is the lower price available while preserving your requirements and the merchant’s minimum margin.',
     };
   }
 
@@ -212,6 +212,6 @@ export function evaluateBoundedCounteroffer({
     checks,
     reasonCodes: ['WITHIN_AUTOMATIC_NEGOTIATION_AUTHORITY'],
     summary:
-      'Boli found a lower configuration that meets the buyer target and remains inside merchant policy.',
+      'Your target is met. Review the item and price changes below before continuing to payment.',
   };
 }

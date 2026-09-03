@@ -43,7 +43,7 @@ export function ApproveCounterofferButton({
   return (
     <div className="counteroffer-approval-control">
       <button type="button" onClick={approve} disabled={submitting}>
-        {submitting ? 'Binding approval to new quote…' : 'Approve exact proposal →'}
+        {submitting ? 'Approving offer…' : 'Approve reduction'}
       </button>
       {error ? <p role="alert">{error}</p> : null}
     </div>

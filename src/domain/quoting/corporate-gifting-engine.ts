@@ -73,7 +73,7 @@ function serviceLines(request: QuoteRequest, basePaise: number): QuoteLine[] {
   };
 
   const beforePaymentReserve =
-    basePaise + assembly.unitPricePaise + (branding?.unitPricePaise ?? 0) + delivery.unitPricePaise;
+    basePaise + (request.selection?.mode === 'product' ? 0 : assembly.unitPricePaise) + (branding?.unitPricePaise ?? 0) + delivery.unitPricePaise;
   const paymentReserve: QuoteLine = {
     code: 'payment-reserve',
     label: 'Payment cost reserve',
@@ -82,7 +82,7 @@ function serviceLines(request: QuoteRequest, basePaise: number): QuoteLine[] {
     unitCostPaise: Math.ceil(beforePaymentReserve * 0.02),
   };
 
-  return [assembly, ...(branding ? [branding] : []), delivery, paymentReserve];
+  return [...(request.selection?.mode === 'product' ? [] : [assembly]), ...(branding ? [branding] : []), delivery, paymentReserve];
 }
 
 function buildCandidate(
@@ -92,7 +92,7 @@ function buildCandidate(
 ): Candidate | undefined {
   if (
     request.hardConstraints.includes('branded') &&
-    products.filter((product) => product.tags.includes('brandable')).length < 2
+    products.filter((product) => product.tags.includes('brandable')).length < (request.selection?.mode === 'product' ? 1 : 2)
   ) {
     return undefined;
   }
@@ -125,6 +125,7 @@ function buildCandidate(
 
   const maxLeadTime = Math.max(...products.map((product) => product.leadTimeDays));
   const checks: ConstraintCheck[] = [
+    ...(request.selection ? [{ code: 'SHOPPING_SELECTION', passed: true, observed: JSON.stringify(request.selection), required: 'buyer-confirmed selection' }] : []),
     {
       code: 'BUYER_UNIT_BUDGET',
       passed: true,
@@ -176,16 +177,16 @@ function withIdentity(
 ): QuoteOption {
   const content = {
     'best-value': {
-      label: 'Best value',
-      rationale: 'The lowest feasible price while preserving every locked constraint.',
+      label: 'Cheapest',
+      rationale: 'The lowest verified total that preserves every locked constraint.',
     },
     balanced: {
-      label: 'Balanced welcome',
-      rationale: 'Uses more of the available mandate without drifting toward the ceiling.',
+      label: 'Balanced',
+      rationale: 'A price-and-delivery balance among the remaining valid options, with the cheapest and fastest choices shown separately.',
     },
     'premium-under-cap': {
-      label: 'Premium under cap',
-      rationale: 'The richest valid kit that still stays inside the buyer’s hard limit.',
+      label: 'Fastest',
+      rationale: 'The fastest distinct valid configuration available for this mandate.',
     },
   }[key];
   return { ...candidate, key, ...content };
@@ -205,6 +206,17 @@ export function generateCorporateGiftingQuotes(
       productMeetsConstraints(product, request.hardConstraints),
   );
 
+  if (request.selection?.mode === 'product') {
+    const words = request.selection.query.toLowerCase().replace(/[^a-z0-9 -]/g, ' ').split(/\s+/).filter(Boolean).map(word => word.endsWith('s') ? word.slice(0, -1) : word);
+    if (!words.length) return { status: 'rejected', reasons: [{ code: 'PRODUCT_QUERY_REQUIRED', message: 'Choose a product type or product name from the catalog.' }], evaluatedCombinations: 0 };
+    const matching = eligible.filter(product => {
+      const text = `${product.name} ${product.sku} ${product.category} ${product.tags.join(' ')}`.toLowerCase();
+      return words.every(word => text.includes(word));
+    });
+    const candidates = matching.map(product => buildCandidate([product], request, minimumMarginBps)).filter((candidate): candidate is Candidate => Boolean(candidate));
+    if (!candidates.length) return { status: 'rejected', reasons: [{ code: 'NO_MATCHING_PRODUCT', message: `No available product matching “${request.selection.query}” meets this quantity, budget, delivery date and requirements. Try the exact catalog name or adjust your request.` }], evaluatedCombinations: matching.length };
+    return selectOptions(candidates, matching.length);
+  }
   const bySlot = Object.fromEntries(
     REQUIRED_SLOTS.map((slot) => [
       slot,
@@ -258,45 +270,54 @@ export function generateCorporateGiftingQuotes(
     };
   }
 
-  candidates.sort((a, b) => a.unitTotalPaise - b.unitTotalPaise);
-  const chosen: Candidate[] = [];
-  const addUnique = (candidate: Candidate) => {
-    const signature = candidate.lines
-      .filter((line) => line.kind === 'product')
-      .map((line) => line.productId)
-      .join(':');
-    if (
-      !chosen.some(
-        (existing) =>
-          existing.lines
-            .filter((line) => line.kind === 'product')
-            .map((line) => line.productId)
-            .join(':') === signature,
-      )
-    ) {
-      chosen.push(candidate);
-    }
+  return selectOptions(candidates, evaluatedCombinations);
+}
+
+function selectOptions(candidates: Candidate[], evaluatedCombinations: number): QuoteEngineResult {
+  const signature = (candidate: Candidate) => JSON.stringify(candidate.lines
+    .filter(line => line.kind === 'product')
+    .map(line => line.productId ?? line.code)
+    .sort());
+  const leadDays = (candidate: Candidate) => {
+    const observed = candidate.checks.find((check) => check.code === 'LEAD_TIME_FEASIBLE')?.observed;
+    return Number(observed?.replace('d', '') ?? Number.MAX_SAFE_INTEGER);
   };
 
-  addUnique(candidates[0]);
-  const balancedTarget = request.maxUnitPaise * 0.82;
-  addUnique(
-    [...candidates].sort(
-      (a, b) =>
-        Math.abs(a.unitTotalPaise - balancedTarget) -
-        Math.abs(b.unitTotalPaise - balancedTarget),
-    )[0],
-  );
-  addUnique(candidates[candidates.length - 1]);
-
-  const keys: QuoteOption['key'][] = [
-    'best-value',
-    'balanced',
-    'premium-under-cap',
-  ];
+  // Stable ties keep option keys consistent when database row order changes.
+  const byPrice = (a: Candidate, b: Candidate) => a.unitTotalPaise - b.unitTotalPaise
+    || leadDays(a) - leadDays(b) || signature(a).localeCompare(signature(b));
+  const distinct = [...new Map([...candidates].sort(byPrice)
+    .map(candidate => [signature(candidate), candidate])).values()];
+  const cheapest = distinct[0];
+  const fastestDays = Math.min(...distinct.map(leadDays));
+  // Reserve a genuinely fastest option first so the balanced pick cannot take
+  // its place. If cheapest is uniquely fastest, do not mislabel a slower SKU.
+  const fastest = distinct.find(candidate => candidate !== cheapest && leadDays(candidate) === fastestDays);
+  const minPrice = cheapest.unitTotalPaise;
+  const minDays = Math.max(1, fastestDays);
+  const score = (candidate: Candidate) => .7 * candidate.unitTotalPaise / minPrice + .3 * leadDays(candidate) / minDays;
+  const byValue = (a: Candidate, b: Candidate) => score(a) - score(b) || byPrice(a, b);
+  const balanced = distinct.filter(candidate => candidate !== cheapest && candidate !== fastest).sort(byValue)[0];
+  const alternative = fastest ?? distinct.find(candidate => candidate !== cheapest && candidate !== balanced);
+  const chosen = [withIdentity(cheapest, 'best-value')];
+  if (balanced) chosen.push(withIdentity(balanced, 'balanced'));
+  if (alternative) {
+    const option = withIdentity(alternative, 'premium-under-cap');
+    chosen.push(fastest ? option : {
+      ...option,
+      label: 'Another option',
+      rationale: 'A different product configuration that meets your requirements. The cheapest option also has the shortest delivery time.',
+    });
+  }
+  // A recommendation follows verified price/delivery, not a hardcoded card.
+  const recommended = [...chosen].sort(byValue)[0];
   return {
     status: 'generated',
-    options: chosen.map((candidate, index) => withIdentity(candidate, keys[index])),
+    options: chosen.map(option => ({
+      ...option,
+      label: option === recommended && option.key === 'balanced' ? 'Best Value' : option.label,
+      recommended: option === recommended,
+    })),
     evaluatedCombinations,
     feasibleCombinations: candidates.length,
   };

@@ -3,6 +3,15 @@ import * as schema from '@/db/schema';
 import { DEMO_MERCHANT, SEED_PRODUCTS } from './seed-data';
 
 const CREATE_STATEMENTS = [
+  `CREATE TABLE IF NOT EXISTS negotiation_rounds (
+    deal_id TEXT PRIMARY KEY NOT NULL,
+    source_quote_id TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS merchant_changes (
+    id TEXT PRIMARY KEY NOT NULL, merchant_id TEXT NOT NULL, kind TEXT NOT NULL,
+    before_json TEXT NOT NULL, after_json TEXT NOT NULL, created_at TEXT NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS merchants (
     id TEXT PRIMARY KEY NOT NULL,
     name TEXT NOT NULL,
@@ -256,6 +265,7 @@ const CREATE_STATEMENTS = [
     failure_code TEXT NOT NULL,
     explanation TEXT NOT NULL,
     replacement_json TEXT NOT NULL,
+    accepted_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   )`,
@@ -279,6 +289,8 @@ export async function ensureDatabase(binding: D1Database) {
 
 async function initialize(binding: D1Database) {
   await binding.batch(CREATE_STATEMENTS.map((statement) => binding.prepare(statement)));
+  await ensureColumn(binding, 'purchase_requirements', 'selection_json',
+    'ALTER TABLE purchase_requirements ADD COLUMN selection_json TEXT');
 
   await ensureColumn(binding, 'quotes', 'policy_version',
     'ALTER TABLE quotes ADD COLUMN policy_version INTEGER NOT NULL DEFAULT 1');
@@ -290,6 +302,8 @@ async function initialize(binding: D1Database) {
     'ALTER TABLE products ADD COLUMN reserved_quantity INTEGER NOT NULL DEFAULT 0');
   await ensureColumn(binding, 'products', 'inventory_version',
     'ALTER TABLE products ADD COLUMN inventory_version INTEGER NOT NULL DEFAULT 1');
+  await ensureColumn(binding, 'fulfilment_incidents', 'accepted_at',
+    'ALTER TABLE fulfilment_incidents ADD COLUMN accepted_at TEXT');
   await binding
     .prepare('CREATE INDEX IF NOT EXISTS idx_quote_events_event_hash ON quote_events(event_hash)')
     .run();

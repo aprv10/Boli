@@ -3,6 +3,7 @@ import type { HardConstraint } from '@/src/domain/quoting/types';
 import { prepareAuditBatch } from './audit-ledger';
 
 export type SubmitPurchaseIntentInput = {
+  selection?: { mode: 'kit' | 'product'; query: string };
   rawText: string;
   hardConstraints: HardConstraint[];
   quantity: number;
@@ -43,6 +44,7 @@ export async function submitPurchaseIntent(
         hardConstraints: input.hardConstraints,
         deliveryLocations: input.deliveryLocations,
         deadline: input.deadline,
+        selection: input.selection ?? { mode: 'kit', query: '' },
         channel: input.channel ?? (input.agentRunId ? 'ai_buyer' : 'human_buyer'),
       },
       createdAt: now,
@@ -65,8 +67,8 @@ export async function submitPurchaseIntent(
     binding
       .prepare(
         `INSERT INTO purchase_requirements (
-          intent_id, quantity, max_unit_paise, delivery_locations_json, deadline
-        ) VALUES (?, ?, ?, ?, ?)`,
+          intent_id, quantity, max_unit_paise, delivery_locations_json, deadline, selection_json
+        ) VALUES (?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         intentId,
@@ -74,6 +76,7 @@ export async function submitPurchaseIntent(
         input.maxUnitPaise,
         JSON.stringify(input.deliveryLocations),
         input.deadline,
+        input.selection ? JSON.stringify(input.selection) : null,
       ),
     binding
       .prepare(

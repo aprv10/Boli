@@ -248,3 +248,66 @@ export async function declineReplacementAndRefund(
     .run();
   return { state: await loadDealPaymentState(binding, deal.id), reused: refund.reused };
 }
+
+export async function acceptCompliantReplacement(
+  binding: D1Database,
+  publicToken: string,
+  now = new Date().toISOString(),
+) {
+  const deal = await binding
+    .prepare('SELECT id FROM deals WHERE public_token = ?')
+    .bind(publicToken)
+    .first<{ id: string }>();
+  if (!deal) throw new PaymentWorkflowError('DEAL_NOT_FOUND', 'Deal unavailable.', 404);
+  const incident = await binding
+    .prepare(
+      `SELECT id, quote_id AS quoteId, status, replacement_json AS replacementJson,
+        accepted_at AS acceptedAt FROM fulfilment_incidents WHERE deal_id = ?`,
+    )
+    .bind(deal.id)
+    .first<{ id: string; quoteId: string; status: string; replacementJson: string; acceptedAt: string | null }>();
+  if (!incident || incident.status !== 'replacement_offered') {
+    throw new PaymentWorkflowError('RECOVERY_OFFER_NOT_FOUND', 'No replacement is awaiting a decision.', 409);
+  }
+  if (incident.acceptedAt) return { state: await loadDealPaymentState(binding, deal.id), reused: true };
+  const replacement = JSON.parse(incident.replacementJson) as { compliantReplacement: string };
+  const quote = await binding
+    .prepare('SELECT quantity FROM quotes WHERE id = ?')
+    .bind(incident.quoteId)
+    .first<{ quantity: number }>();
+  const product = await binding
+    .prepare(
+      `SELECT id, available_quantity AS availableQuantity, reserved_quantity AS reservedQuantity
+       FROM products WHERE name = ? AND active = 1`,
+    )
+    .bind(replacement.compliantReplacement)
+    .first<{ id: string; availableQuantity: number; reservedQuantity: number }>();
+  if (!quote || !product || product.availableQuantity - product.reservedQuantity < quote.quantity) {
+    throw new PaymentWorkflowError('REPLACEMENT_INVENTORY_CHANGED', 'The replacement is no longer available.', 409);
+  }
+  const audit = await prepareAuditBatch(binding, deal.id, [
+    {
+      id: crypto.randomUUID(),
+      quoteId: incident.quoteId,
+      eventType: 'compliant_replacement_accepted',
+      actorType: 'buyer',
+      summary: `Buyer accepted ${replacement.compliantReplacement}; locked constraints and order total stayed unchanged.`,
+      data: { incidentId: incident.id, replacementProductId: product.id, buyerChargeDeltaPaise: 0 },
+      createdAt: now,
+    },
+  ]);
+  await binding.batch([
+    binding
+      .prepare(
+        `UPDATE products SET available_quantity = available_quantity - ?,
+          inventory_version = inventory_version + 1 WHERE id = ?`,
+      )
+      .bind(quote.quantity, product.id),
+    binding
+      .prepare("UPDATE fulfilment_incidents SET accepted_at = ?, updated_at = ? WHERE id = ? AND accepted_at IS NULL")
+      .bind(now, now, incident.id),
+    ...audit.statements,
+    binding.prepare('UPDATE deals SET updated_at = ? WHERE id = ?').bind(now, deal.id),
+  ]);
+  return { state: await loadDealPaymentState(binding, deal.id), reused: false };
+}

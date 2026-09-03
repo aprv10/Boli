@@ -2,12 +2,14 @@ import { env } from 'cloudflare:workers';
 import { ensureDatabase } from '@/src/adapters/db/database';
 import { approvePendingCounteroffer } from '@/src/application/counteroffer-workflow';
 import { QuoteWorkflowError } from '@/src/application/quote-workflow';
+import { assertLocalMerchantWrite } from '@/src/application/merchant-management';
 
 type RouteContext = {
   params: Promise<{ dealId: string; counterofferId: string }>;
 };
 
 export async function POST(_request: Request, { params }: RouteContext) {
+  try { assertLocalMerchantWrite(_request); } catch { return Response.json({ error: { message: 'Use the local merchant workspace to approve offers.' } }, { status: 403 }); }
   await ensureDatabase(env.DB);
   try {
     const { dealId, counterofferId } = await params;

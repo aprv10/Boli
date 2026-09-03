@@ -8,8 +8,11 @@ export const hardConstraintSchema = z.enum([
 ]);
 
 export const rfqInterpretationSchema = z.object({
+  shoppingMode: z.enum(['kit', 'product', 'unknown']).default('unknown'),
+  productQuery: z.string().max(120).default(''),
+  unsupportedRequirements: z.array(z.string().max(160)).max(10).default([]),
   requestTitle: z.string().trim().min(3).max(80),
-  quantity: z.number().int().min(10).max(10_000).nullable(),
+  quantity: z.number().int().min(1).max(10_000).nullable(),
   budgetKind: z.enum(['per_unit', 'total', 'unknown']),
   budgetInr: z.number().min(1).max(10_000_000).nullable(),
   deliveryLocations: z.array(z.string().trim().min(2).max(80)).max(10),
@@ -32,24 +35,29 @@ export const rfqInterpretationSchema = z.object({
 
 export type RfqInterpretation = z.infer<typeof rfqInterpretationSchema>;
 
+// Keep the provider grammar structural. Bounds, date validity and string/array
+// limits are enforced by rfqInterpretationSchema after generation, not by
+// Mistral's more limited structured-output grammar compiler.
 export const RFQ_INTERPRETATION_JSON_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    requestTitle: { type: 'string', minLength: 3, maxLength: 80 },
-    quantity: { anyOf: [{ type: 'integer', minimum: 10, maximum: 10_000 }, { type: 'null' }] },
+    shoppingMode: { type: 'string', enum: ['kit', 'product', 'unknown'] },
+    productQuery: { type: 'string', description: 'Product type/name/material only; at most 120 characters. Empty for kits or unknown requests.' },
+    unsupportedRequirements: { type: 'array', items: { type: 'string' }, description: 'At most 10 requirements, each at most 160 characters.' },
+    requestTitle: { type: 'string', description: 'A short title, 3–80 characters.' },
+    quantity: { type: ['integer', 'null'], description: 'Explicit quantity from 1 to 10000, or null if unstated.' },
     budgetKind: { type: 'string', enum: ['per_unit', 'total', 'unknown'] },
-    budgetInr: { anyOf: [{ type: 'number', minimum: 1, maximum: 10_000_000 }, { type: 'null' }] },
+    budgetInr: { type: ['number', 'null'], description: 'Stated INR amount, or null if unstated. Do not calculate a per-unit amount from a total.' },
     deliveryLocations: {
       type: 'array',
-      maxItems: 10,
-      items: { type: 'string', minLength: 2, maxLength: 80 },
+      items: { type: 'string' },
+      description: 'At most 10 stated cities, each 2–80 characters. Empty when unstated.',
     },
-    deadline: { anyOf: [{ type: 'string', format: 'date' }, { type: 'null' }] },
+    deadline: { type: ['string', 'null'], description: 'A real calendar date in YYYY-MM-DD format, or null when unstated or ambiguous.' },
     hardConstraints: {
       type: 'array',
-      maxItems: 4,
-      uniqueItems: true,
+      description: 'Only requested constraints, with no duplicates. Empty when none are stated.',
       items: {
         type: 'string',
         enum: ['vegan', 'plastic-free', 'branded', 'multi-city'],
@@ -57,34 +65,35 @@ export const RFQ_INTERPRETATION_JSON_SCHEMA = {
     },
     missingFields: {
       type: 'array',
-      maxItems: 4,
-      uniqueItems: true,
+      description: 'Missing required buying details, without duplicates.',
       items: {
         type: 'string',
         enum: ['quantity', 'budget_per_kit', 'delivery_locations', 'deadline'],
       },
     },
     clarifyingQuestion: {
-      anyOf: [{ type: 'string', minLength: 5, maxLength: 180 }, { type: 'null' }],
+      type: ['string', 'null'],
+      description: 'One short question, 5–180 characters, or null if nothing needs clarification.',
     },
     evidence: {
       type: 'object',
       additionalProperties: false,
       properties: {
-        quantity: { anyOf: [{ type: 'string', maxLength: 100 }, { type: 'null' }] },
-        budget: { anyOf: [{ type: 'string', maxLength: 100 }, { type: 'null' }] },
-        delivery: { anyOf: [{ type: 'string', maxLength: 140 }, { type: 'null' }] },
-        deadline: { anyOf: [{ type: 'string', maxLength: 100 }, { type: 'null' }] },
+        quantity: { type: ['string', 'null'] },
+        budget: { type: ['string', 'null'] },
+        delivery: { type: ['string', 'null'] },
+        deadline: { type: ['string', 'null'] },
         constraints: {
           type: 'array',
-          maxItems: 4,
-          items: { type: 'string', maxLength: 100 },
+          items: { type: 'string' },
         },
       },
       required: ['quantity', 'budget', 'delivery', 'deadline', 'constraints'],
+      description: 'Short exact excerpts from the request (at most 100 characters each, delivery at most 140); null for unstated details. At most four constraint excerpts.',
     },
   },
   required: [
+    'shoppingMode', 'productQuery', 'unsupportedRequirements',
     'requestTitle',
     'quantity',
     'budgetKind',

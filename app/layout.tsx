@@ -1,13 +1,21 @@
 import type { Metadata } from 'next';
+import '@fontsource-variable/manrope';
+import '@fontsource/instrument-serif';
+import '@fontsource/instrument-serif/400-italic.css';
 import './globals.css';
+import './visual-system.css';
+import './product-experience.css';
+import './landing-and-motion.css';
+import { SiteHeader } from './site-header';
+import { MerchantNav } from './merchant/merchant-nav';
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.APP_BASE_URL ?? 'http://localhost:3000'),
-  title: 'Boli — Turn intent into a deal',
+  title: 'Boli — Find a deal that fits',
   description:
-    'Boli turns complex bulk-buying requests into constrained, negotiable and payable orders.',
+    'Say what you need. Explore products, ask for a better offer, and buy with Boli.',
   openGraph: {
-    title: 'Boli — Turn intent into a deal',
+    title: 'Boli — Find a deal that fits',
     description:
       'Constrained, negotiable and payable bulk orders for human and AI buyers.',
     images: [
@@ -33,7 +41,7 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body><SiteHeader /><MerchantNav />{children}</body>
     </html>
   );
 }

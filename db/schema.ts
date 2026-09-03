@@ -97,6 +97,7 @@ export const agentRuns = sqliteTable(
 );
 
 export const purchaseRequirements = sqliteTable('purchase_requirements', {
+  selectionJson: text('selection_json'),
   intentId: text('intent_id')
     .primaryKey()
     .references(() => purchaseIntents.id),
@@ -479,6 +480,7 @@ export const fulfilmentIncidents = sqliteTable(
     failureCode: text('failure_code').notNull(),
     explanation: text('explanation').notNull(),
     replacementJson: text('replacement_json').notNull(),
+    acceptedAt: text('accepted_at'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },

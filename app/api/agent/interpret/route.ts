@@ -8,7 +8,7 @@ import {
 } from '@/src/application/agent/mistral-interpreter';
 
 const inputSchema = z.object({
-  brief: z.string().trim().min(40).max(600),
+  brief: z.string().trim().min(3).max(600),
 });
 
 export async function POST(request: Request) {
@@ -33,7 +33,7 @@ export async function POST(request: Request) {
         error: {
           code: 'AI_NOT_CONFIGURED',
           message:
-            'Mistral is not connected locally. Add MISTRAL_API_KEY to .env.local, restart Boli, or continue with the manual buying rails.',
+            'Mistral is not connected locally. Configure MISTRAL_API_KEY on the server, or enter your requirements manually.',
         },
       },
       { status: 503 },
@@ -96,12 +96,13 @@ export async function POST(request: Request) {
           id, provider, model, operation, status, input_json, output_json,
           prompt_tokens, completion_tokens, total_tokens, latency_ms,
           failure_code, created_at
-        ) VALUES (?, 'mistral', ?, 'interpret_rfq', 'failed', ?, NULL, 0, 0, 0, ?, ?, ?)`,
+        ) VALUES (?, 'mistral', ?, 'interpret_rfq', 'failed', ?, ?, 0, 0, 0, ?, ?, ?)`,
       )
       .bind(
         runId,
         MISTRAL_MODEL,
         JSON.stringify({ brief: parsed.data.brief }),
+        JSON.stringify({ code: failure.code, providerStatus: failure.providerStatus, providerCode: failure.providerCode }),
         latencyMs,
         failure.code,
         createdAt,

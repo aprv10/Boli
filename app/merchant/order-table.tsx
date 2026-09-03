@@ -1,0 +1,7 @@
+import Link from 'next/link';
+import { merchantOrderStatus, type MerchantOrderRow } from '@/src/application/merchant-overview';
+const money = (paise: number) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(paise / 100);
+export function OrderTable({ orders }: { orders: MerchantOrderRow[] }) {
+  if (!orders.length) return <div className="shopping-empty"><h3>No orders here yet</h3><p>Buyer requests will appear here with their items, total and next action.</p><Link href="/request">Create a request →</Link></div>;
+  return <div className="merchant-table-wrap"><table className="merchant-table"><thead><tr><th>Order / request</th><th>Quantity</th><th>Total</th><th>Status</th><th><span className="sr-only">Action</span></th></tr></thead><tbody>{orders.map(order => <tr key={order.id}><td><strong>#{order.id.slice(0, 8).toUpperCase()}</strong><span className="table-request" title={order.request}>{order.request}</span><small>{new Date(order.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</small></td><td>{order.quantity}</td><td>{order.amountPaise == null ? 'Not quoted' : money(order.amountPaise)}</td><td><span className={`status-pill ${order.pending ? 'status-attention' : ''}`}>{merchantOrderStatus(order)}</span></td><td><Link className="table-action" href={`/merchant/deals/${order.id}`}>{order.pending ? 'Review offer' : 'View order'} →</Link></td></tr>)}</tbody></table></div>;
+}
