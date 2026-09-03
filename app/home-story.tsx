@@ -70,7 +70,7 @@ export function HomeStory() {
       <div className="story-section">
         <BlurFade><header className="story-heading"><div><span className="story-eyebrow">A FEW PLACES TO START</span><h2 id="story-products-title">Real things.<br /><em>Real possibilities.</em></h2></div><div><p>Welcome kits or a product from the connected store. Start with a category, then make the request your own.</p><Link className="story-text-link" href="/catalog">Browse all products <ArrowRight size={16} /></Link></div></header></BlurFade>
         <div className="story-product-grid">{startingPoints.map((item, index) => <BlurFade key={item.kind} delay={index * 0.07}><SpotlightCard depth className={`story-product-card story-product-${item.kind}`}><Link href={item.href} aria-label={`Start a request for ${item.label.toLowerCase()}`}><div className="story-art-stage"><ProductIllustration kind={item.kind} /><span>{item.note}</span></div><div className="story-product-copy"><div><h3>{item.label}</h3><p>{item.description}</p></div><span className="story-product-arrow"><ArrowRight size={20} /></span></div></Link></SpotlightCard></BlurFade>)}</div>
-        <p className="story-catalog-note">Illustrations shown · The Good Batch demo catalog · Current prices and availability are checked when you request an offer.</p>
+        <p className="story-catalog-note">Demo merchant · Illustrations shown · Prices and availability are checked when you request an offer.</p>
       </div>
     </section>
 
@@ -84,7 +84,7 @@ export function HomeStory() {
     <section className="story-section story-faq" aria-labelledby="story-faq-title">
       <div><span className="story-eyebrow">GOOD QUESTIONS</span><h2 id="story-faq-title">Before you <em>ask.</em></h2><a className="story-text-link" href="#start-shopping">Ready? Start with what you need <ArrowDown size={16} className="story-return-arrow" /></a></div>
       <div className="story-questions">
-        <details><summary>Can I ask for anything?</summary><p>You can describe any request, but Boli can currently quote welcome kits or one product type from The Good Batch’s demo catalog. If something doesn’t fit, you can adjust the request. It won’t quietly swap in an unrelated bundle.</p></details>
+        <details><summary>Can I ask for anything?</summary><p>Describe what you need. This demo supports welcome kits or one product type from the connected catalog. If there’s no match, Boli will tell you and let you adjust the request.</p></details>
         <details><summary>Does asking commit me to a purchase?</summary><p>No. You review the requirements, the items and the final total first. Continuing to payment accepts that exact offer; a chat message alone never authorizes a payment.</p></details>
         <details><summary>Are these live purchases?</summary><p>This is a local buildathon demo with test payments only. Prices, inventory checks, merchant rules and order decisions run through the backend. There is no live fulfillment.</p></details>
       </div>

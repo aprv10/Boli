@@ -12,13 +12,13 @@ import { MerchantNav } from './merchant/merchant-nav';
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.APP_BASE_URL ?? 'http://localhost:3000'),
-  title: 'Boli — Find a deal that fits',
+  title: 'Boli — Commerce for the agentic internet',
   description:
-    'Say what you need. Explore products, ask for a better offer, and buy with Boli.',
+    'Make your store available to AI buyers. Describe what you need, compare offers, negotiate and pay with Boli.',
   openGraph: {
-    title: 'Boli — Find a deal that fits',
+    title: 'Boli — Commerce for the agentic internet',
     description:
-      'Constrained, negotiable and payable bulk orders for human and AI buyers.',
+      'AI proposes. Policy decides. Razorpay executes.',
     images: [
       {
         url: '/og.png',
@@ -30,9 +30,9 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Boli — Turn intent into a deal',
+    title: 'Boli — Commerce for the agentic internet',
     description:
-      'Constrained, negotiable and payable bulk orders for human and AI buyers.',
+      'AI proposes. Policy decides. Razorpay executes.',
     images: ['/og.png'],
   },
 };

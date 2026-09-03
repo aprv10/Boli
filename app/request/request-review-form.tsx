@@ -39,6 +39,6 @@ export function RequestReviewForm({ draft, onChange, onSubmit, busy, submitLabel
       </div>
     </fieldset>
     {error ? <p className="flow-error review-wide" role="alert">{error}</p> : null}
-    <footer className="review-wide"><span>{manual ? 'The Good Batch will review your requirements. No payment is taken.' : submitHint ?? 'Next: compare the actual products, delivery and all-in totals.'}</span><button disabled={Boolean(busy)}>{busy || (manual ? 'Send to store for review' : submitLabel ?? 'Show my options')} <ArrowRight size={16} /></button></footer>
+    <footer className="review-wide"><span>{manual ? 'The store will review your requirements. No payment is taken.' : submitHint ?? 'Next: compare products, delivery and total prices.'}</span><button disabled={Boolean(busy)}>{busy || (manual ? 'Send to store for review' : submitLabel ?? 'Find offers')} <ArrowRight size={16} /></button></footer>
   </form>;
 }

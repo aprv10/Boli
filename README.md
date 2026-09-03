@@ -1,10 +1,18 @@
-# Boli
+# Boli — Commerce for the agentic internet
 
 **Say what you need. Find a deal that fits.**
 
-Boli makes an existing merchant catalog transactable by AI buyers. It normalizes catalog and inventory data, turns natural-language demand into a bounded buyer mandate, builds authoritative quotes, applies merchant policy, and crosses a separate Razorpay payment gate only after buyer approval.
+Boli lets merchants make their existing store available to AI buyers. A buyer describes what they need; Boli finds matching offers, helps negotiate within the store’s rules, suggests suitable add-ons, and takes payment through Razorpay only after buyer approval. Welcome kits are one demo example—not the product’s entire purpose.
 
 > AI proposes. Policy decides. Razorpay executes.
+
+## The five-minute demo
+
+Start at `/`: describe the request, check the extracted details, compare up to three eligible offers, and choose **Best Value** (the backend’s recommended option). Request a better price, review the result, optionally add a suitable product, and continue to payment. The existing order controls open in the same buyer workspace; the order URL can be refreshed or revisited.
+
+After payment, use **Demo tools** to simulate an unavailable snack, review the blocked dairy substitute, and accept a valid replacement or request a refund. Open **View Decision Trace**, then **Sell** to see the store-ready state and revenue from actual recorded test orders. See [DEMO_SCRIPT.md](DEMO_SCRIPT.md) for the timed recording guide.
+
+The buyer screens keep implementation details out of the way. Hashes, rule versions, and audit verification remain in the advanced Decision Trace receipt.
 
 ## What is real
 
@@ -55,9 +63,11 @@ Advisory results are saved in Decision Trace and reused for matching request/can
 ```powershell
 pnpm typecheck
 pnpm lint
+pnpm test
+pnpm build
 ```
 
-End-to-end verification is manual for this iteration. Existing smoke scripts have not been run or updated for the revised buyer experience. Results show up to three distinct eligible options, not three duplicated or invented choices.
+The unit suite covers quote generation, negotiation, policy checks, payment reconciliation, audit integrity, and bounded AI recommendations. Use the demo script for the browser walkthrough; the older smoke scripts are not the recording guide. Results show up to three distinct eligible options, not duplicated or invented choices. “Best Value” labels the existing recommended choice; its original category and verified explanation remain under “Why this?”.
 
 ## Razorpay Test Mode
 
@@ -74,14 +84,14 @@ Boli refuses non-test key IDs. Configure the webhook route at `/api/razorpay/web
 
 ## Product surfaces
 
-- `/` and `/request` — buyer request, editable confirmation, real product options
+- `/` and `/request` — buyer request, editable details, offers, and the existing order controls via `?order=:publicToken`; negotiation, add-ons, checkout, confirmation and recovery stay in that workspace
 - `/catalog` — connected products and product-specific request links
 - `/sell` and `/merchant/dashboard` — paid sales, paid add-on revenue, attention queue and distinct-request funnel
 - `/merchant/deals` — order list with merchant approval and rejection actions
 - `/merchant/products` — editable product prices, costs, stock and lead times
 - `/merchant/policies` — working margin and automatic reduction rules
 - `/transactions` — transaction ledger and Decision Trace entry
-- `/deal/:publicToken` — quote, negotiation, upsell, payment, recovery, and verified audit
+- `/deal/:publicToken` — direct link to the same order, payment, recovery and audit controls (existing links still work)
 - `/agent` — existing guided AI-buyer demo, linked from the store overview; uses the shared request form and backend capabilities
 - `/.well-known/boli-commerce` — agent-commerce manifest
 - `/api/agent/v1/tools` — typed agent tools
