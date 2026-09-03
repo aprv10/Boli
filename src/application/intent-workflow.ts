@@ -1,9 +1,12 @@
 import { DEMO_MERCHANT } from '@/src/adapters/db/seed-data';
 import type { HardConstraint } from '@/src/domain/quoting/types';
 import { prepareAuditBatch } from './audit-ledger';
+import { requiresMerchantReview, type CustomRequirement } from '@/src/domain/quoting/custom-requirements';
 
 export type SubmitPurchaseIntentInput = {
   selection?: { mode: 'kit' | 'product'; query: string };
+  customRequirements?: CustomRequirement[];
+  requestMerchantReview?: boolean;
   rawText: string;
   hardConstraints: HardConstraint[];
   quantity: number;
@@ -31,6 +34,8 @@ export async function submitPurchaseIntent(
   const intentId = crypto.randomUUID();
   const dealId = crypto.randomUUID();
   const publicToken = `${crypto.randomUUID()}${crypto.randomUUID()}`.replaceAll('-', '');
+  const customRequirements = input.customRequirements ?? [];
+  const manualReview = input.requestMerchantReview || requiresMerchantReview(customRequirements);
   const audit = await prepareAuditBatch(binding, dealId, [
     {
       id: crypto.randomUUID(),
@@ -45,6 +50,8 @@ export async function submitPurchaseIntent(
         deliveryLocations: input.deliveryLocations,
         deadline: input.deadline,
         selection: input.selection ?? { mode: 'kit', query: '' },
+        customRequirements,
+        merchantReviewRequested: Boolean(manualReview),
         channel: input.channel ?? (input.agentRunId ? 'ai_buyer' : 'human_buyer'),
       },
       createdAt: now,
@@ -67,8 +74,8 @@ export async function submitPurchaseIntent(
     binding
       .prepare(
         `INSERT INTO purchase_requirements (
-          intent_id, quantity, max_unit_paise, delivery_locations_json, deadline, selection_json
-        ) VALUES (?, ?, ?, ?, ?, ?)`,
+          intent_id, quantity, max_unit_paise, delivery_locations_json, deadline, selection_json, custom_requirements_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         intentId,
@@ -77,6 +84,7 @@ export async function submitPurchaseIntent(
         JSON.stringify(input.deliveryLocations),
         input.deadline,
         input.selection ? JSON.stringify(input.selection) : null,
+        JSON.stringify(customRequirements),
       ),
     binding
       .prepare(
@@ -87,6 +95,9 @@ export async function submitPurchaseIntent(
       .bind(dealId, DEMO_MERCHANT.id, intentId, publicToken, now, now),
     ...audit.statements,
   ];
+  if (manualReview) statements.push(binding.prepare(
+    "INSERT INTO custom_quote_requests (deal_id,status,buyer_note,created_at) VALUES (?,'pending',?,?)",
+  ).bind(dealId, input.rawText, now));
   if (input.agentRunId && input.agentReviewStatus) {
     statements.push(
       binding

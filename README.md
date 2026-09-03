@@ -8,8 +8,8 @@ Boli makes an existing merchant catalog transactable by AI buyers. It normalizes
 
 ## What is real
 
-- Server-side Mistral structured extraction for buyer intent and negotiation language.
-- Deterministic bundle, price, inventory, delivery, hard-constraint, margin, concession, upsell, reservation, substitution, and refund decisions.
+- Server-side Mistral structured extraction for buyer intent and negotiation language, ranking of eligible options, and selection of eligible kit add-ons.
+- Deterministic bundle, price, inventory, delivery, hard-constraint, margin, concession, upsell eligibility, reservation, substitution, and refund decisions.
 - Exact quote hashes, buyer acceptance, versioned policy checks, and an append-only SHA-256 audit chain.
 - Razorpay Test Mode Orders, Checkout signature verification, raw-body webhook verification, event deduplication, exact amount/currency reconciliation, and idempotent refunds.
 - A signed local payment provider that passes through the same webhook handler for credential-free demos.
@@ -38,13 +38,17 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ### Optional Mistral configuration
 
-Add only this variable to your existing `.env.local` if you want live model interpretation:
+Add only this variable to your existing `.env.local` if you want live interpretation, option ranking and add-on recommendations:
 
 ```env
 MISTRAL_API_KEY=
 ```
 
 Without it, buyer interpretation opens an empty, editable review form with an explicit notice. There are no demo requirement defaults. Negotiation can interpret an explicit unit price deterministically; neither path authorizes a price on its own.
+
+Ranking and upsells reuse the same server-side key and model. Following [Mistral's structured-output API](https://docs.mistral.ai/studio/conversations/structured-output/custom), the model returns only eligible candidate IDs and references to backend-verified facts. Boli validates every reference and renders the explanation itself: no model-authored prices, eligibility claims or promises. The buyer sees an AI label only for validated Mistral output; missing credentials, invalid output and an 8-second timeout fall back to deterministic recommendations. Only one eligible quote skips the ranking call.
+
+Advisory results are saved in Decision Trace and reused for matching request/candidate snapshots. They do not authorize offers. Upsells remain optional, limited to eligible catalog accessories for kits; mandatory custom requirements disable automatic add-ons. Acceptance binds the exact displayed product and price, rechecks current stock, delivery, costs and margin, then issues a backend quote. No Mistral call occurs during acceptance, checkout, payment or refund execution. There are no additional environment variables for these features.
 
 ## Verification
 
@@ -78,7 +82,18 @@ Boli refuses non-test key IDs. Configure the webhook route at `/api/razorpay/web
 - `/merchant/policies` — working margin and automatic reduction rules
 - `/transactions` — transaction ledger and Decision Trace entry
 - `/deal/:publicToken` — quote, negotiation, upsell, payment, recovery, and verified audit
+- `/agent` — existing guided AI-buyer demo, linked from the store overview; uses the shared request form and backend capabilities
 - `/.well-known/boli-commerce` — agent-commerce manifest
 - `/api/agent/v1/tools` — typed agent tools
 
 This repository contains no deployment step. OpenAI Sites and the inherited Sites Vite plugin are not used.
+
+## Agent flow
+
+The human intent route and agent tools share the purchase-input contract, including product selection, quantity, all-in unit budget, delivery and custom requirements. Agent discovery reports available stock after reservations. `get_deal_options` uses the same eligible options and grounded Mistral ranking as the buyer UI; `select_option` asks the backend to authorize the exact quote under current merchant policy. Ordinary eligible requests no longer require a manual merchant click. Required custom requirements remain blocked until the merchant confirms an offer.
+
+The guided `/agent` flow confirms the mandate, compares options, selects an eligible offer and stops for buyer approval. **Refresh is read-only with respect to acceptance and payment**: it may prepare an offer if none exists, but never accepts one. The explicit approval button submits the displayed quote hash, then the existing order page handles separate checkout. The demo does not call payment tools automatically. Negotiation, add-ons and recovery remain available in that same order page.
+
+Agent tools also expose one bounded negotiation round (product swaps off by default), explicit original/revised proposal choice, eligible add-on recommendation and acceptance of the exact displayed add-on. `accept_quote` and `accept_upsell` require `buyerApproved: true` from the calling buyer, not from recommendation text. `create_checkout` is a separate call using an accepted quote hash and an idempotency key. Status, acceptance, checkout and audit reads do not invoke Mistral. The discovery manifest includes the actual tool-input JSON schema.
+
+The guided console is same-origin and local-only. External tool calls use the existing optional `BOLI_AGENT_API_KEY`; without it, only local requests are allowed and cross-origin browser requests are rejected. This is a local demo integration, not a production buyer identity/delegation system. No new environment variables are required.

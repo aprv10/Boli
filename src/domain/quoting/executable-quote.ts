@@ -48,6 +48,12 @@ export async function createQuoteFingerprints(input: FingerprintInput) {
     deliveryLocations: input.deliveryLocations,
     deadline: input.deadline,
     hardConstraints: [...input.hardConstraints].sort(),
+    // Preserve v1 fingerprints for existing orders; bind new custom conditions
+    // to the mandate as well as the executable quote when they are present.
+    ...(() => {
+      const custom = input.option.checks.find(check => check.code === 'CUSTOM_REQUIREMENTS' || check.code === 'CUSTOM_PREFERENCES_RECORDED');
+      return custom ? { customRequirements: custom.observed } : {};
+    })(),
   });
 
   const quoteHash = await sha256Hex({

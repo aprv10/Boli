@@ -33,6 +33,21 @@ function fingerprint(option: QuoteOption, version = 1) {
 }
 
 describe('executable quote fingerprints', () => {
+  it('binds additional requirements to both the mandate and quote', async () => {
+    const original = await fingerprint(result.options[0]);
+    const custom = { ...result.options[0], checks: [...result.options[0].checks, {
+      code: 'CUSTOM_REQUIREMENTS', passed: true, observed: JSON.stringify([{ text: 'A handwritten note in each kit', priority: 'required' }]), required: 'Explicit merchant confirmation',
+    }] };
+    const withRequirement = await fingerprint(custom);
+    expect(withRequirement.intentHash).not.toBe(original.intentHash);
+    expect(withRequirement.quoteHash).not.toBe(original.quoteHash);
+    const preferred = await fingerprint({ ...custom, checks: custom.checks.map(check => check.code === 'CUSTOM_REQUIREMENTS' ? {
+      ...check, code: 'CUSTOM_PREFERENCES_RECORDED', observed: JSON.stringify([{ text: 'A handwritten note in each kit', priority: 'preferred' }]),
+    } : check) });
+    expect(preferred.intentHash).not.toBe(withRequirement.intentHash);
+    expect(preferred.quoteHash).not.toBe(withRequirement.quoteHash);
+  });
+
   it('canonicalizes object keys before hashing', () => {
     expect(stableStringify({ z: 1, a: { y: 2, b: 3 } })).toBe(
       '{"a":{"b":3,"y":2},"z":1}',

@@ -9,6 +9,8 @@ const inputSchema = z.object({
   expectedQuoteHash: z.string().regex(/^[a-f0-9]{64}$/),
   targetUnitPaise: z.number().int().min(100).max(10_000_000).optional(),
   buyerMessage: z.string().trim().min(3).max(280),
+  awaitBuyerChoice: z.boolean().optional(),
+  allowAlternatives: z.boolean().optional(),
 });
 
 type RouteContext = { params: Promise<{ publicToken: string }> };
@@ -43,7 +45,9 @@ export async function POST(request: Request, { params }: RouteContext) {
         expectedQuoteHash: parsed.data.expectedQuoteHash,
         targetUnitPaise: interpreted.targetUnitPaise,
         buyerMessage: parsed.data.buyerMessage,
-        sourceKind: 'natural_language',
+        sourceKind: parsed.data.targetUnitPaise ? 'structured' : 'natural_language',
+        awaitBuyerChoice: parsed.data.awaitBuyerChoice,
+        allowAlternatives: parsed.data.allowAlternatives,
       },
     );
     return Response.json({
@@ -79,7 +83,7 @@ export async function POST(request: Request, { params }: RouteContext) {
         { status: error.status },
       );
     }
-    if (error instanceof UnclearNegotiationTarget) return Response.json({ error: { code: 'TARGET_UNCLEAR', message: 'Please enter one price per item, for example “₹250 per bottle”.' } }, { status: 422 });
+    if (error instanceof UnclearNegotiationTarget) return Response.json({ error: { code: 'TARGET_UNCLEAR', message: 'Ask for one final price per item, for example “₹250 per bottle”. Change products, quantity or requirements in a new buying request. This has not used your negotiation round.' } }, { status: 422 });
     return Response.json({ error: { code: 'NEGOTIATION_UNAVAILABLE', message: 'We could not confirm the result. Refresh this order before trying again.' } }, { status: 500 });
   }
 }

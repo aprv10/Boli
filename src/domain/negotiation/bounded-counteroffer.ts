@@ -38,6 +38,7 @@ type EvaluateCounterofferInput = {
   hardConstraints: HardConstraint[];
   targetResult: QuoteEngineResult;
   baselineResult: QuoteEngineResult;
+  allowAlternatives?: boolean;
   policy?: {
     minimumMarginBps: number;
     maximumAutomaticConcessionBps: number;
@@ -66,6 +67,10 @@ function cheapestOption(result: QuoteEngineResult) {
   )[0] ?? null;
 }
 
+function sameProductsOnly(result: QuoteEngineResult, source: CounterofferSourceQuote): QuoteEngineResult {
+  return result.status === 'generated' ? { ...result, options: result.options.filter(option => productSignature(option) === productSignature(source)) } : result;
+}
+
 export function evaluateBoundedCounteroffer({
   sourceQuote,
   targetUnitPaise,
@@ -73,6 +78,7 @@ export function evaluateBoundedCounteroffer({
   hardConstraints,
   targetResult,
   baselineResult,
+  allowAlternatives = true,
   policy = DEFAULT_NEGOTIATION_POLICY,
 }: EvaluateCounterofferInput): CounterofferDecision {
   if (!Number.isSafeInteger(targetUnitPaise) || targetUnitPaise <= 0) {
@@ -100,8 +106,8 @@ export function evaluateBoundedCounteroffer({
     };
   }
 
-  const targetOption = richestOption(targetResult);
-  const floorOption = cheapestOption(baselineResult);
+  const targetOption = richestOption(allowAlternatives ? targetResult : sameProductsOnly(targetResult, sourceQuote));
+  const floorOption = cheapestOption(allowAlternatives ? baselineResult : sameProductsOnly(baselineResult, sourceQuote));
   const proposedOption = targetOption ?? floorOption;
 
   if (

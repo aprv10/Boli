@@ -11,6 +11,8 @@ import {
 import { getDatabase } from '@/src/adapters/db/database';
 import { loadAuditLedgerNewestFirst, prepareAuditBatch } from './audit-ledger';
 import { loadActiveMerchantPolicy } from './policy-gate';
+import { quoteAuthorityGuard } from './quote-authority-guard';
+import { requiresMerchantReview, type CustomRequirement } from '@/src/domain/quoting/custom-requirements';
 import { createQuoteFingerprints } from '@/src/domain/quoting/executable-quote';
 import { generateCorporateGiftingQuotes } from '@/src/domain/quoting/corporate-gifting-engine';
 import { evaluateCommerceAction, type MerchantPolicy } from '@/src/domain/policies/commerce-policy';
@@ -36,6 +38,7 @@ export class QuoteWorkflowError extends Error {
 }
 
 export type DealQuoteWorkspace = {
+  evaluatedAt: string;
   deal: {
     id: string;
     merchantId: string;
@@ -44,6 +47,7 @@ export type DealQuoteWorkspace = {
     createdAt: string;
     rawText: string;
     selection?: { mode: 'kit' | 'product'; query: string };
+    customRequirements: CustomRequirement[];
     quantity: number;
     maxUnitPaise: number;
     deadline: string;
@@ -183,6 +187,7 @@ export async function loadDealQuoteWorkspace(
       deliveryLocationsJson: purchaseRequirements.deliveryLocationsJson,
       deadline: purchaseRequirements.deadline,
       selectionJson: purchaseRequirements.selectionJson,
+      customRequirementsJson: purchaseRequirements.customRequirementsJson,
       agentProvider: agentRuns.provider,
       agentModel: agentRuns.model,
       agentReviewStatus: intentAgentRuns.reviewStatus,
@@ -225,9 +230,11 @@ export async function loadDealQuoteWorkspace(
   const selection = record.selectionJson ? JSON.parse(record.selectionJson) as { mode: 'kit' | 'product'; query: string } : undefined;
 
   return {
+    evaluatedAt: now,
     deal: {
       ...record,
       selection,
+      customRequirements: JSON.parse(record.customRequirementsJson) as CustomRequirement[],
       hardConstraints,
       deliveryLocations,
       agentInterpretation:
@@ -285,6 +292,7 @@ export async function approveQuoteOption(
   optionKey: QuoteOption['key'],
   now = new Date().toISOString(),
   actorType: 'merchant' | 'system' = 'merchant',
+  customConfirmation?: { message: string; expectedOption: string },
 ) {
   const workspace = await loadDealQuoteWorkspace(binding, dealId, now);
   if (!workspace) {
@@ -302,6 +310,19 @@ export async function approveQuoteOption(
   if (!option) {
     throw new QuoteWorkflowError('OPTION_NOT_FOUND', 'That quote option is unavailable.', 404);
   }
+  const requiredReview = requiresMerchantReview(workspace.deal.customRequirements);
+  if (requiredReview && (!customConfirmation || actorType !== 'merchant')) {
+    throw new QuoteWorkflowError('MERCHANT_CONFIRMATION_REQUIRED', 'The store must confirm your specific requirements before this order can be offered.', 409);
+  }
+  // The merchant confirms an exact server-generated configuration, never a client price.
+  if (customConfirmation && (actorType !== 'merchant' || customConfirmation.expectedOption !== JSON.stringify(option))) {
+    throw new QuoteWorkflowError('OPTION_CHANGED', 'Products or pricing changed. Refresh and review the offer again.', 409);
+  }
+  const requirementCheck: ConstraintCheck[] = workspace.deal.customRequirements.length ? [{
+    code: requiredReview ? 'CUSTOM_REQUIREMENTS' : 'CUSTOM_PREFERENCES_RECORDED', passed: true,
+    observed: JSON.stringify(workspace.deal.customRequirements),
+    required: requiredReview ? 'Explicit merchant confirmation for these exact items and total' : 'Preferences only; not guaranteed',
+  }] : [];
   const policyDecision = evaluateCommerceAction({
     action: 'approve_quote',
     policy: workspace.policy,
@@ -324,7 +345,7 @@ export async function approveQuoteOption(
   const checksByCode = new Map(
     [...option.checks, ...policyDecision.checks].map((check) => [check.code, check]),
   );
-  const approvedOption = { ...option, checks: [...checksByCode.values()] };
+  const approvedOption = { ...option, checks: [...checksByCode.values(), ...requirementCheck] };
 
   const history = await loadDealQuotes(binding, dealId);
   const accepted = history.find((quote) => quote.status === 'buyer_accepted');
@@ -366,7 +387,7 @@ export async function approveQuoteOption(
       break;
     }
   }
-  if (alreadyApproved) {
+  if (alreadyApproved && !customConfirmation) {
     return { quote: alreadyApproved, publicToken: workspace.deal.publicToken, reused: true };
   }
 
@@ -401,12 +422,21 @@ export async function approveQuoteOption(
         policyVersion: workspace.policy.version,
         checks: policyDecision.checks,
         reasonCodes: policyDecision.reasonCodes,
+        ...(customConfirmation ? { merchantConfirmation: customConfirmation.message, customRequirements: workspace.deal.customRequirements } : {}),
       },
       createdAt: now,
     },
   ]);
 
   await binding.batch([
+    quoteAuthorityGuard(binding, { merchantId: workspace.deal.merchantId, policyVersion: workspace.policy.version, quantity: workspace.deal.quantity, catalog: workspace.catalog, option: approvedOption, now }),
+    ...(customConfirmation ? [
+      binding.prepare(`INSERT INTO merchant_changes (id,merchant_id,kind,before_json,after_json,created_at)
+        VALUES (?,?,'custom_quote',(SELECT json_object('status',status) FROM custom_quote_requests WHERE deal_id=? AND status='pending'),?,?)`)
+        .bind(crypto.randomUUID(), workspace.deal.merchantId, dealId, JSON.stringify({ response: customConfirmation.message, quoteId }), now),
+      binding.prepare("UPDATE custom_quote_requests SET status='quoted',merchant_response=?,responded_at=? WHERE deal_id=? AND status='pending'")
+        .bind(customConfirmation.message, now, dealId),
+    ] : []),
     binding
       .prepare(
         `UPDATE quotes SET status = 'superseded'
@@ -506,6 +536,9 @@ export async function acceptCurrentQuote(
       'The merchant has not issued an executable quote yet.',
       409,
     );
+  }
+  if (requiresMerchantReview(room.deal.customRequirements) && !quote.checks.some(check => check.code === 'CUSTOM_REQUIREMENTS' && check.passed && check.observed === JSON.stringify(room.deal.customRequirements))) {
+    throw new QuoteWorkflowError('MERCHANT_CONFIRMATION_REQUIRED', 'Your requirements need an explicit store confirmation.', 409);
   }
   if (quote.quoteHash !== expectedQuoteHash) {
     throw new QuoteWorkflowError(

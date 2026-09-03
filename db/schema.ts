@@ -98,6 +98,7 @@ export const agentRuns = sqliteTable(
 
 export const purchaseRequirements = sqliteTable('purchase_requirements', {
   selectionJson: text('selection_json'),
+  customRequirementsJson: text('custom_requirements_json').notNull().default('[]'),
   intentId: text('intent_id')
     .primaryKey()
     .references(() => purchaseIntents.id),
@@ -197,6 +198,7 @@ export const counteroffers = sqliteTable(
       .notNull()
       .references(() => quotes.id),
     proposedQuoteId: text('proposed_quote_id').references(() => quotes.id),
+    buyerChoice: text('buyer_choice', { enum: ['pending', 'revised', 'original'] }),
     sourceKind: text('source_kind', {
       enum: ['structured', 'natural_language'],
     }).notNull(),

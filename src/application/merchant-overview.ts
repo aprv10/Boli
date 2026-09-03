@@ -5,6 +5,7 @@ export type MerchantOrderRow = {
   id: string; publicToken: string; request: string; quantity: number; createdAt: string;
   amountPaise: number | null; quoteStatus: string | null; paymentStatus: string | null;
   incidentStatus: string | null; replacementAccepted: string | null; pending: number;
+  customStatus: string | null;
 };
 export function merchantOrderStatus(row: MerchantOrderRow) {
   if (row.paymentStatus === 'refunded') return 'Refunded';
@@ -12,22 +13,27 @@ export function merchantOrderStatus(row: MerchantOrderRow) {
   if (row.replacementAccepted) return 'Replacement accepted';
   if (row.incidentStatus === 'replacement_offered') return 'Awaiting replacement decision';
   if (row.paymentStatus === 'paid') return 'Paid';
+  if (row.customStatus === 'pending') return 'Custom request';
   if (row.pending) return 'Approval needed';
   if (row.quoteStatus === 'buyer_accepted') return 'Awaiting payment';
   if (row.quoteStatus) return 'Offer sent';
+  if (row.customStatus === 'needs_changes') return 'Buyer revision requested';
+  if (row.customStatus === 'declined') return 'Request declined';
   return 'New request';
 }
 export async function loadMerchantOrders(db: D1Database) {
   const rows = await db.prepare(`SELECT d.id, d.public_token AS publicToken, i.raw_text AS request,
     r.quantity, d.created_at AS createdAt, q.order_total_paise AS amountPaise, q.status AS quoteStatus,
-    o.status AS paymentStatus, f.status AS incidentStatus, f.accepted_at AS replacementAccepted,
+    o.status AS paymentStatus, f.status AS incidentStatus, f.accepted_at AS replacementAccepted, cr.status AS customStatus,
     (SELECT COUNT(*) FROM counteroffers c WHERE c.deal_id=d.id AND c.status='merchant_approval_required'
-      AND c.source_quote_id=q.id AND q.status='merchant_approved') AS pending
+      AND c.source_quote_id=q.id AND q.status='merchant_approved' AND q.expires_at>?
+      AND (c.buyer_choice IS NULL OR c.buyer_choice='pending')) AS pending
     FROM deals d JOIN purchase_intents i ON i.id=d.intent_id JOIN purchase_requirements r ON r.intent_id=i.id
     LEFT JOIN quotes q ON q.id=(SELECT id FROM quotes WHERE deal_id=d.id ORDER BY version DESC LIMIT 1)
     LEFT JOIN razorpay_orders o ON o.id=(SELECT id FROM razorpay_orders WHERE deal_id=d.id ORDER BY created_at DESC LIMIT 1)
     LEFT JOIN fulfilment_incidents f ON f.deal_id=d.id
-    WHERE d.merchant_id=? ORDER BY d.created_at DESC`).bind(DEMO_MERCHANT.id).all<MerchantOrderRow>();
+    LEFT JOIN custom_quote_requests cr ON cr.deal_id=d.id
+    WHERE d.merchant_id=? ORDER BY d.created_at DESC`).bind(new Date().toISOString(), DEMO_MERCHANT.id).all<MerchantOrderRow>();
   return rows.results;
 }
 

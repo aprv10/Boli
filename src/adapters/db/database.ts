@@ -3,6 +3,12 @@ import * as schema from '@/db/schema';
 import { DEMO_MERCHANT, SEED_PRODUCTS } from './seed-data';
 
 const CREATE_STATEMENTS = [
+  `CREATE TABLE IF NOT EXISTS custom_quote_requests (
+    deal_id TEXT PRIMARY KEY NOT NULL REFERENCES deals(id),
+    status TEXT NOT NULL CHECK (status IN ('pending', 'quoted', 'needs_changes', 'declined')),
+    buyer_note TEXT NOT NULL, merchant_response TEXT,
+    created_at TEXT NOT NULL, responded_at TEXT
+  )`,
   `CREATE TABLE IF NOT EXISTS negotiation_rounds (
     deal_id TEXT PRIMARY KEY NOT NULL,
     source_quote_id TEXT NOT NULL,
@@ -291,6 +297,10 @@ async function initialize(binding: D1Database) {
   await binding.batch(CREATE_STATEMENTS.map((statement) => binding.prepare(statement)));
   await ensureColumn(binding, 'purchase_requirements', 'selection_json',
     'ALTER TABLE purchase_requirements ADD COLUMN selection_json TEXT');
+  await ensureColumn(binding, 'purchase_requirements', 'custom_requirements_json',
+    "ALTER TABLE purchase_requirements ADD COLUMN custom_requirements_json TEXT NOT NULL DEFAULT '[]'");
+  await ensureColumn(binding, 'counteroffers', 'buyer_choice',
+    "ALTER TABLE counteroffers ADD COLUMN buyer_choice TEXT CHECK (buyer_choice IN ('pending', 'revised', 'original'))");
 
   await ensureColumn(binding, 'quotes', 'policy_version',
     'ALTER TABLE quotes ADD COLUMN policy_version INTEGER NOT NULL DEFAULT 1');

@@ -27,7 +27,16 @@ export async function authorizeAgentRequest(request: Request) {
     return provided.length > 0 && (await equalSecret(provided, key));
   }
   const hostname = new URL(request.url).hostname;
-  return hostname === 'localhost' || hostname === '127.0.0.1';
+  const origin = request.headers.get('origin');
+  return ['localhost', '127.0.0.1', '[::1]'].includes(hostname)
+    && (!origin || origin === new URL(request.url).origin)
+    && request.headers.get('sec-fetch-site') !== 'cross-site';
+}
+
+export function authorizeLocalAgentConsole(request: Request) {
+  const url = new URL(request.url);
+  return ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+    && request.headers.get('origin') === url.origin;
 }
 
 export function agentAccessMode() {

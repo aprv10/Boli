@@ -44,6 +44,36 @@ const rejected: QuoteEngineResult = {
 };
 
 describe('evaluateBoundedCounteroffer', () => {
+  it('does not replace products when the buyer opts out of alternatives', () => {
+    const result = evaluateBoundedCounteroffer({ sourceQuote: option(80_000), targetUnitPaise: 75_000,
+      originalMaxUnitPaise: 90_000, hardConstraints: [], allowAlternatives: false,
+      targetResult: generated(option(75_000)), baselineResult: generated(option(70_000)) });
+    expect(result.status).toBe('rejected');
+    expect(result.proposedOption).toBeNull();
+  });
+
+  it('can discount the same products without permission to swap them', () => {
+    const source = option(80_000);
+    const discounted = option(75_000);
+    discounted.lines[0].productId = source.lines[0].productId;
+    const result = evaluateBoundedCounteroffer({ sourceQuote: source, targetUnitPaise: 75_000,
+      originalMaxUnitPaise: 90_000, hardConstraints: [], allowAlternatives: false,
+      targetResult: generated(option(74_000), discounted), baselineResult: generated(option(70_000)) });
+    expect(result.status).toBe('auto_approved');
+    expect(result.proposedOption).toBe(discounted);
+  });
+
+  it('keeps the same-product floor even when a cheaper replacement exists', () => {
+    const source = option(80_000);
+    const sameProducts = option(76_000);
+    sameProducts.lines[0].productId = source.lines[0].productId;
+    const result = evaluateBoundedCounteroffer({ sourceQuote: source, targetUnitPaise: 74_000,
+      originalMaxUnitPaise: 90_000, hardConstraints: [], allowAlternatives: false,
+      targetResult: generated(option(74_000)), baselineResult: generated(option(70_000), sameProducts) });
+    expect(result.status).toBe('bounded_counteroffer');
+    expect(result.proposedOption).toBe(sameProducts);
+  });
+
   it('automatically approves a safe concession within authority', () => {
     const result = evaluateBoundedCounteroffer({
       sourceQuote: option(80_000),

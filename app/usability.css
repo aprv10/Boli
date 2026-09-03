@@ -1,0 +1,107 @@
+/* Focused refinements: same visual identity, clearer controls and independent cards. */
+.shopping-section-heading > a.action-link { color: #fffefb; background: #244734; border-color: #244734; }
+.shopping-section-heading > a.action-link:hover { background: #193a2b; }
+.shopping-options { align-items: start; }
+.constraint-ticks, .constraint-tags { min-height: 0; align-items: flex-start; align-content: flex-start; }
+.constraint-ticks > span, .constraint-tags > span { min-height: 0; height: auto; padding: 4px 8px; font-size: 12px; line-height: 1.4; font-weight: 500; }
+.constraint-ticks:empty { display: none; }
+.catalog-grid > article { display: flex; flex-direction: column; align-items: flex-start; }
+.catalog-grid .catalog-illustration { align-self: stretch; }
+.catalog-grid .constraint-ticks { margin: 2px 0 18px; }
+.catalog-grid .catalog-request-link { margin-top: auto; border: 1px solid #d3ddca; padding: 9px 12px; border-radius: 6px; background: #f7f9f1; color: #284b37; }
+.catalog-grid .catalog-request-link:hover { background: #edf2e3; text-decoration: none; }
+.catalog-stock-note { padding: 10px 0; }
+.buyer-progress { list-style: none; display: flex; gap: 26px; padding: 0; margin: 0 0 35px; color: #73806d; font-size: 13px; }
+.buyer-progress li { display: flex; gap: 9px; align-items: center; }
+.buyer-progress li span { display: grid; place-items: center; width: 26px; height: 26px; border: 1px solid #d6dece; border-radius: 50%; font-size: 12px; }
+.buyer-progress [aria-current=step] { color: #244734; font-weight: 700; }
+.buyer-progress [aria-current=step] span { background: #244734; border-color: #244734; color: white; }
+.request-refined { max-width: 980px; gap: 28px 32px; }
+.request-refined .request-group { min-width: 0; padding: 24px 0 0; }
+.request-refined .request-group:first-child { border-top: 0; padding-top: 0; }
+.request-refined .request-group legend { float: none; margin-bottom: 12px; font-size: 16px; }
+.request-refined .request-group > label { display: flex; flex-direction: column; align-items: stretch; margin-top: 20px; }
+.request-refined fieldset label { text-transform: none; }
+.request-refined .request-group > p { font-size: 13px; padding: 0; line-height: 1.7; color: #67745e; }
+.request-refined .purchase-choice { display: flex; gap: 10px; }
+.request-refined .purchase-choice label { padding: 11px 17px; border: 1px solid #d6dfcb; border-radius: 8px; background: #fafbf6; cursor: pointer; }
+.request-refined .purchase-choice label:has(:checked) { border-color: #648453; background: #eef3e6; color: #244734; }
+.request-refined input[type=radio] { width: 16px; height: 16px; min-height: 0; accent-color: #345a3c; padding: 0; }
+.budget-field { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+.budget-field > label { font-size: 14px; font-weight: 600; color: #42573e; }
+.amount-input { display: flex; align-items: center; border: 1px solid #bdcdb2; background: #fbfcf7; border-radius: 8px; overflow: hidden; }
+.amount-input > span { color: #57744b; font-size: 21px; padding: 0 0 0 15px; }
+.request-refined .amount-input input, .negotiation-form .amount-input input { width: 100%; min-width: 0; min-height: 48px; padding: 10px 12px; font-size: 21px; border: 0; background: transparent; box-shadow: none; color: #244734; font-variant-numeric: tabular-nums; }
+.amount-input:focus-within { outline: 2px solid #78955c; outline-offset: 2px; }
+.budget-choice { display: flex; gap: 4px; flex-wrap: wrap; }
+.shopping-workspace .budget-choice button, .order-shell .budget-choice button { min-height: 32px; padding: 5px 10px; border: 1px solid transparent; font-size: 12px; background: transparent; color: #617357; }
+.shopping-workspace .budget-choice button[aria-pressed=true], .order-shell .budget-choice button[aria-pressed=true] { color: #244734; background: #eaf0df; border-color: #d4dfc7; }
+.request-refined .requirement-presets { gap: 12px 20px; margin-bottom: 22px; }
+.request-refined .custom-requirements { display: block; border-top: 1px solid #e8edde; padding-top: 21px; }
+.custom-requirements > label { font-size: 14px; font-weight: 600; display: block; margin-bottom: 10px; }
+.requirement-entry { display: grid; grid-template-columns: minmax(0,1fr) 145px auto; gap: 9px; }
+.custom-requirements > small { display: block; margin-top: 12px; }
+.requirement-list { list-style: none; margin: 18px 0; padding: 0; }
+.requirement-list li { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid #e5eadd; padding: 13px 0; }
+.requirement-list strong { display: block; font-size: 14px; font-weight: 600; color: #334d34; overflow-wrap: anywhere; }
+.requirement-list span { display: block; font-size: 12px; margin-top: 5px; color: #6b795f; line-height: 1.6; }
+.requirement-list li > div:last-child:not(:first-child) { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
+.request-refined .requirement-list select { min-height: 34px; font-size: 12px; padding: 6px 8px; width: auto; }
+.shopping-workspace .icon-button { display: grid; place-items: center; min-height: 34px; padding: 7px; background: transparent; color: #68775c; border: 0; }
+.request-refined footer span { max-width: 460px; line-height: 1.7; }
+.custom-quote-invite { display: flex; justify-content: space-between; align-items: center; gap: 25px; border-top: 1px solid #dce3d4; margin-top: 35px; padding-top: 27px; }
+.custom-quote-invite h2 { font: 650 18px var(--boli-font); margin: 0 0 8px; }
+.custom-quote-invite p { color: #68785d; font-size: 14px; line-height: 1.7; margin: 0; max-width: 620px; }
+.custom-quote-invite button { flex-shrink: 0; }
+.negotiation-form, .store-reply-form { display: grid; gap: 20px; }
+.negotiation-form > label, .store-reply-form > label { display: grid; gap: 9px; font-size: 14px; font-weight: 600; color: #42573e; }
+.negotiation-form > label:not(.requirement-confirm) { max-width: 530px; }
+.negotiation-form textarea, .store-reply-form :is(textarea, select) { width: 100%; padding: 12px; min-height: 46px; border: 1px solid #cfdac6; border-radius: 7px; background: #fbfcf7; color: #294632; font: inherit; font-size: 15px; line-height: 1.6; }
+.negotiation-form textarea, .store-reply-form textarea { min-height: 90px; resize: vertical; }
+.negotiation-form small, .offer-comparison small { font-size: 12px; font-weight: 400; color: #66775a; line-height: 1.7; }
+.negotiation-form .requirement-confirm, .store-reply-form .requirement-confirm { display: flex; align-items: flex-start; gap: 11px; line-height: 1.6; font-size: 13px; font-weight: 500; }
+.requirement-confirm input { accent-color: #345a3c; flex-shrink: 0; width: 17px; height: 17px; margin-top: 3px; }
+.requirement-confirm small { display: block; margin-top: 4px; }
+.negotiation-form footer { border-top: 1px solid #e1e7d8; padding-top: 18px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.negotiation-form footer button { flex-shrink: 0; }
+.offer-comparison { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid #dce4d2; border-radius: 9px; overflow: hidden; margin: 24px 0 16px; }
+.offer-comparison > div { padding: 19px; }
+.offer-comparison > div:last-child { background: #f1f5e9; border-left: 1px solid #dce4d2; }
+.offer-comparison span { font-size: 12px; color: #607550; display: block; margin-bottom: 12px; }
+.offer-comparison strong { font-size: clamp(22px, 2.5vw, 29px); letter-spacing: -.045em; font-weight: 650; font-variant-numeric: tabular-nums; }
+.offer-comparison p { font-size: 13px; color: #66795a; margin-bottom: 0; }
+.negotiation-saving { font-size: 13px; color: #3a643f; line-height: 1.7; }
+.offer-choice-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 22px 0 17px; }
+.negotiation-outcome .actual-changes { margin-bottom: 24px; }
+.request-status { margin-bottom: 28px; }
+.request-status blockquote, .custom-quote-review blockquote { margin: 18px 0; padding: 14px 18px; background: #f3f6ed; border-left: 2px solid #8ca96b; font-size: 15px; line-height: 1.75; }
+.request-status-facts { display: grid; grid-template-columns: 1fr 1fr 1.4fr; gap: 22px; margin: 25px 0; }
+.request-status-facts dt { font-size: 12px; color: #697c5c; margin-bottom: 8px; }
+.request-status-facts dd { font-size: 14px; line-height: 1.7; font-weight: 600; margin: 0; }
+.store-reply-form > button { justify-self: start; }
+.store-reply-form p { color: #64765a; font-size: 14px; line-height: 1.7; }
+.merchant-metrics { gap: 0; border: 1px solid #dce2d3; border-radius: 10px; background: #fffefb; overflow: hidden; }
+.merchant-metrics article { border: 0; border-radius: 0; border-right: 1px solid #e4e9dd; padding: 24px; }
+.merchant-metrics article:last-child { border-right: 0; }
+.merchant-workspace .merchant-table th { font-size: 12px; color: #56664e; padding-block: 15px; }
+.merchant-workspace .table-request { max-width: 390px; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.6; }
+.merchant-workspace .workspace-note { font-size: 12px; color: #66785a; }
+.merchant-context-note { margin: 0 0 28px; color: #6b795f; font-size: 12px; line-height: 1.7; }
+.merchant-funnel-optional { padding-top: 17px; border-top: 1px solid #e1e8d6; font-size: 13px; color: #637653; line-height: 1.7; }
+.merchant-history { margin-top: 25px; border-top: 1px solid #e4eadb; }
+@media (max-width: 700px) {
+  .buyer-progress { gap: 15px; font-size: 11px; }
+  .buyer-progress li { gap: 6px; }
+  .buyer-progress li span { width: 23px; height: 23px; flex-shrink: 0; }
+  .request-refined { grid-template-columns: 1fr; padding: 21px; gap: 25px; }
+  .requirement-entry { grid-template-columns: 1fr auto; }
+  .requirement-entry > input { grid-column: 1 / -1; }
+  .requirement-list li { align-items: flex-start; flex-wrap: wrap; }
+  .custom-quote-invite, .negotiation-form footer { flex-direction: column; align-items: stretch; }
+  .request-status-facts { grid-template-columns: 1fr; gap: 17px; }
+  .offer-comparison > div { padding: 15px; }
+  .offer-choice-actions > button { flex: 1 1 auto; }
+  .merchant-metrics article { padding: 19px; border-bottom: 1px solid #e4e9dd; }
+  .merchant-metrics article:nth-child(2) { border-right: 0; }
+  .merchant-metrics article:nth-last-child(-n+2) { border-bottom: 0; }
+}

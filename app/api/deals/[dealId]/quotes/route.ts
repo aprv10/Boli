@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { z } from 'zod';
 import { ensureDatabase } from '@/src/adapters/db/database';
+import { rankDealOptions } from '@/src/application/recommendation-workflow';
 import {
   approveQuoteOption,
   loadDealQuoteWorkspace,
@@ -27,14 +28,16 @@ export async function GET(_request: Request, { params }: RouteContext) {
     return Response.json({ options: [], rejectionReasons: workspace.result.reasons });
   }
 
+  const rankedOptions = await rankDealOptions(env.DB, workspace, env.MISTRAL_API_KEY ?? process.env.MISTRAL_API_KEY);
   return Response.json({
     merchant: { name: 'The Good Batch', source: 'demo_catalog' },
     authority: 'DETERMINISTIC_POLICY_ENGINE',
-    options: workspace.result.options.map((option) => ({
+    options: rankedOptions.map((option) => ({
       key: option.key,
       label: option.label,
       recommended: option.recommended ?? option.key === 'best-value',
       rationale: option.rationale,
+      recommendationSource: option.recommendationSource,
       unitTotalPaise: option.unitTotalPaise,
       orderTotalPaise: option.orderTotalPaise,
       deliveryDays: Number(
@@ -83,6 +86,9 @@ export async function POST(request: Request, { params }: RouteContext) {
         { status: error.status },
       );
     }
-    throw error;
+    if (/constraint|unique/i.test(String(error))) {
+      return Response.json({ error: { code: 'OFFER_CHANGED', message: 'Products, rules or the order changed while this offer was being prepared. Refresh and review the latest options.' } }, { status: 409 });
+    }
+    return Response.json({ error: { code: 'OFFER_UNAVAILABLE', message: 'We could not confirm the offer. Refresh before trying again.' } }, { status: 500 });
   }
 }

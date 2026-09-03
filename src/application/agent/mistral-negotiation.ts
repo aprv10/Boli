@@ -21,7 +21,7 @@ export async function interpretNegotiationRequest({ message, apiKey }: { message
         body: JSON.stringify({
           model: MISTRAL_MODEL,
           messages: [
-            { role: 'system', content: 'Extract one explicitly requested unit price in integer INR paise and any commitment. Return null target if ambiguous, a percentage only, a total order budget, or if no price was stated. Never invent a price or approve a discount, payment or transaction. ₹250 per bottle = 25000 paise.' },
+            { role: 'system', content: 'Extract one explicitly requested unit price in integer INR paise and any non-binding purchase commitment. Return null target if ambiguous, a percentage only, a total order budget, no price was stated, or the message changes products, quantity, delivery or requirements. Only a unit price target is supported here. Never invent a price or approve a discount, payment or transaction. ₹250 per bottle = 25000 paise.' },
             { role: 'user', content: message },
           ],
           response_format: { type: 'json_schema', json_schema: { name: 'boli_negotiation_intent', strict: true, schema: { type: 'object', additionalProperties: false, required: ['targetUnitPaise', 'condition'], properties: { targetUnitPaise: { type: ['integer', 'null'] }, condition: { type: ['string', 'null'] } } } } },

@@ -23,12 +23,12 @@ export async function POST(_request: Request, { params }: RouteContext) {
         id: result.counteroffer.id,
         status: result.counteroffer.status,
       },
-      quote: {
+      quote: result.quote ? {
         version: result.quote.version,
         quoteHash: result.quote.quoteHash,
         unitTotalPaise: result.quote.unitTotalPaise,
         status: result.quote.status,
-      },
+      } : null,
       reused: result.reused,
     });
   } catch (error) {
@@ -38,6 +38,9 @@ export async function POST(_request: Request, { params }: RouteContext) {
         { status: error.status },
       );
     }
-    throw error;
+    if (/constraint|unique/i.test(String(error))) {
+      return Response.json({ error: { code: 'OFFER_CHANGED', message: 'This offer, its products or the store rules changed. Refresh before approving it.' } }, { status: 409 });
+    }
+    return Response.json({ error: { code: 'APPROVAL_UNAVAILABLE', message: 'We could not confirm the approval. Refresh to check its status before trying again.' } }, { status: 500 });
   }
 }

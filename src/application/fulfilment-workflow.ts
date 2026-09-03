@@ -5,6 +5,7 @@ import {
   PaymentWorkflowError,
 } from './payment-workflow';
 import { loadPublicDealRoom } from './quote-workflow';
+import { requiresMerchantReview } from '@/src/domain/quoting/custom-requirements';
 import { evaluateSubstitution } from '@/src/domain/fulfilment/substitution-policy';
 
 type ProductRow = {
@@ -36,6 +37,7 @@ export async function reportDemoFulfilmentFailure(
     .first<{ publicToken: string }>();
   if (!deal) throw new PaymentWorkflowError('DEAL_NOT_FOUND', 'Deal unavailable.', 404);
   const room = await loadPublicDealRoom(binding, deal.publicToken);
+  if (room && requiresMerchantReview(room.deal.customRequirements)) throw new PaymentWorkflowError('CUSTOM_ORDER_LOCKED', 'The demo cannot automatically substitute products with individually confirmed requirements.', 409);
   const paymentState = await loadDealPaymentState(binding, dealId);
   if (!room?.currentQuote || paymentState.stage !== 'paid' || !paymentState.payment) {
     throw new PaymentWorkflowError(
@@ -130,6 +132,12 @@ export async function reportDemoFulfilmentFailure(
     buyerImpact: 'No extra charge. The merchant absorbs any replacement cost difference.',
   };
   const audit = await prepareAuditBatch(binding, dealId, [
+    {
+      id: crypto.randomUUID(), quoteId: room.currentQuote.id,
+      eventType: 'inventory_failure_reported', actorType: 'system',
+      summary: `Demo inventory failure: the paid allocation of ${failedProduct.name} became unavailable.`,
+      data: { incidentId, failedProductId: failedProduct.id, reservationId: reservation.id, quantity: reservation.quantity, simulated: true }, createdAt: now,
+    },
     {
       id: crypto.randomUUID(),
       quoteId: room.currentQuote.id,
